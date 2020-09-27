@@ -20,11 +20,11 @@ Homebrew: https://brew.sh/
 ## Building and Running the Application
 
 1) Open a terminal
-2) Run **make build** from */am1146/code/trunk/app*
-3) Run **daml start** from */am1146/code/trunk/app*
+2) Run **make build** from */msc-proj/code/trunk/app*
+3) Run **daml start** from */msc-proj/code/trunk/app*
 4) Open a second terminal
 5) Wait for the DAML server to start - (‘Started server:...’ message in the first terminal)
-6) Run **yarn start** from */am1146/code/trunk/app/ui*
+6) Run **yarn start** from */msc-proj/code/trunk/app/ui*
 7) Go to *localhost:3000* in your browser
 8) Log in as *Farmer Fred*
 9) If no sample data loads in the *Products* table straight away, wait and refresh the page
