@@ -1,0 +1,1423 @@
+module Product where
+
+import Record
+import Types
+import DA.Optional
+import DA.List
+
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+-- PRODUCT
+
+type ProductCid = ContractId Product
+type ProductKey = (Party, Text) -- (owner, productId)
+
+data OrderContractId
+  = ProcessingRequestCidTag ProcessingRequestCid
+  | NewProcessingOrderCidTag NewProcessingOrderCid
+  | ActiveProcessingOrderCidTag ActiveProcessingOrderCid
+  | TransportationRequestCidTag TransportationRequestCid
+  | NewTransportationOrderCidTag NewTransportationOrderCid
+  | ActiveTransportationOrderCidTag ActiveTransportationOrderCid
+  | HandoverRequestCidTag HandoverRequestCid
+  | SaleRequestCidTag SaleRequestCid
+    deriving (Eq, Show)
+
+data ProductState
+  = IDLE
+  | PROCESSING_REQUESTED
+  | PROCESSING_ACCEPTED
+  | IN_PROCESS
+  | IN_TRANSIT
+  | TRANSPORTATION_REQUESTED
+  | TRANSPORTATION_ACCEPTED
+  | HANDOVER_REQUESTED
+  | SALE_REQUESTED
+    deriving (Eq, Show)
+
+template Product
+  with
+    version : Int
+    state : ProductState
+    productId : Text
+    isProcessed : Bool
+    description : Text
+    lastUpdated : Time
+    lastRecordType : RecordType
+    owner : Party
+    handler : Party
+    productInfo : ProductInfo
+    recordKeys : [RecordKey]
+    requestObserver : Optional Party
+    offerObserver : Optional Party
+    orderCid : Optional OrderContractId
+  where
+    signatory owner
+    observer requestObserver, offerObserver
+    key (owner, productId) : ProductKey
+    maintainer key._1
+
+    controller owner can
+      Fetch : (ProductCid, Product)
+        do
+          productCid <- create this
+          product <- fetch productCid
+          return (productCid, product)
+
+      ArchiveProduct : [()]
+        do
+          forA recordKeys $ \k -> do
+            (recordCid, record) <- fetchByKey @Record k
+            archive recordCid
+            return ()
+
+      MergeProduct: (ProductCid, RecordCid, [RecordCid])
+        with
+          otherProductKey : ProductKey
+          recordTime : Time
+          recordId : Text
+          newDescription : Text
+        do
+          (otherProductCid, otherProduct) <- fetchByKey @Product otherProductKey
+
+          assert (state == IDLE)
+          assert (owner == handler)
+          assert (otherProduct.state == IDLE)
+          assert (otherProduct.owner == owner)
+          assert (otherProduct.handler == owner)
+          assert (otherProduct.productInfo.typeId == productInfo.typeId)
+          assert (recordTime > otherProduct.lastUpdated)
+          assert (recordTime > lastUpdated)
+
+          let recordKey = (owner, productId, recordId)
+          let newAmount = Amount with
+                unit = productInfo.amount.unit
+                quantity = productInfo.amount.quantity + otherProduct.productInfo.amount.quantity
+          let newLabels = dedup (productInfo.labels ++ otherProduct.productInfo.labels)
+
+          recordCid <- create Record with
+            recordType = MERGE
+            productId
+            recordId
+            completionTime = recordTime
+            details = MergeRecordDetailsTag MergeRecordDetails with
+              oldProductA = productInfo
+              oldProductB = otherProduct.productInfo
+              newProduct = ProductInfo with
+                typeId = productInfo.typeId
+                labels = newLabels
+                amount = newAmount
+              time = recordTime
+              oldDescriptionA = description
+              oldDescriptionB = otherProduct.description
+              newDescription
+            actor = owner
+            productOwner = owner
+            productCurrentHandler = owner
+            requestObserver = None
+            offerObserver = None
+
+          let otherKeysMinusProductId = map (\k -> (k._1, k._3)) otherProduct.recordKeys
+          let recordKeysMinusProductId = map (\k -> (k._1, k._3)) recordKeys
+          let otherKeysMinusProductIdUnique = otherKeysMinusProductId\\recordKeysMinusProductId
+
+          otherProductRecordCids <- forA otherKeysMinusProductIdUnique $ \k -> do
+            exerciseByKey @Record (k._1, otherProduct.productId, k._2) OnProductMerge with 
+              newProductId = productId
+
+          let otherRecordKeys = map (\k -> (k._1, productId, k._2)) otherKeysMinusProductIdUnique
+
+          productCid <- create this with
+            productInfo = ProductInfo with
+              amount = newAmount
+              labels = newLabels
+              typeId = productInfo.typeId
+            recordKeys = recordKeys ++ otherRecordKeys ++ [recordKey]
+            lastUpdated = recordTime
+            lastRecordType = MERGE
+            version = version + 1
+            description = newDescription
+            productId
+
+          archive otherProductCid
+
+          return (productCid, recordCid, otherProductRecordCids)
+
+      SplitProduct : (ProductCid, RecordCid, ProductCid, RecordCid, [RecordCid])
+        with
+          quantityA : Decimal
+          quantityB : Decimal
+          recordTime : Time
+          recordId : Text
+          productIdB : Text
+          descriptionA : Text
+          descriptionB : Text
+        do
+          assert (state == IDLE)
+          assert (owner == handler)
+          assert (recordTime > lastUpdated)
+          assert (quantityA > 0.0)
+          assert (quantityB > 0.0)
+          --assert (quantityA + quantityB == amount.quantity)
+
+          let recordKeyA = (owner, productId, recordId)
+          let recordKeyB = (owner, productIdB, recordId)
+          let newAmountA = Amount with
+                unit = productInfo.amount.unit
+                quantity = quantityA
+          let newAmountB = Amount with
+                unit = productInfo.amount.unit
+                quantity = quantityB
+
+          recordCidA <- create Record with
+            recordType = SPLIT
+            productId = productId
+            recordId
+            completionTime = recordTime
+            details = SplitRecordDetailsTag SplitRecordDetails with
+              oldProduct = productInfo
+              newProductA = ProductInfo with
+                typeId = productInfo.typeId
+                labels = productInfo.labels
+                amount = newAmountA
+              newProductB = ProductInfo with
+                typeId = productInfo.typeId
+                labels = productInfo.labels
+                amount = newAmountB
+              time = recordTime
+              oldDescription = description
+              newDescriptionA = descriptionA
+              newDescriptionB = descriptionB
+            actor = owner
+            productOwner = owner
+            productCurrentHandler = owner
+            requestObserver = None
+            offerObserver = None
+
+          recordA <- fetch recordCidA
+
+          recordCidB <- create recordA with
+            productId = productIdB
+
+          productCidA <- create this with
+            productInfo = ProductInfo with
+              typeId = productInfo.typeId
+              labels = productInfo.labels
+              amount = Amount with
+                unit = productInfo.amount.unit
+                quantity = quantityA
+            lastUpdated = recordTime
+            recordKeys = recordKeys ++ [recordKeyA]
+            lastRecordType = SPLIT
+            description = descriptionA
+            version = version + 1
+            productId
+
+          recordCidsB <- forA recordKeys $ \k -> do
+            exerciseByKey @Record k OnProductSplit with 
+              newProductId = productIdB
+
+          let otherRecordKeys = map (replaceProductId productIdB) recordKeys
+
+          productCidB <- create this with
+            productId = productIdB
+            productInfo = ProductInfo with
+              amount = Amount with
+                unit = productInfo.amount.unit
+                quantity = quantityB
+              labels = productInfo.labels
+              typeId = productInfo.typeId
+            lastUpdated = recordTime
+            recordKeys = otherRecordKeys ++ [recordKeyB]
+            lastRecordType = SPLIT
+            description = descriptionB
+            version = version + 1
+
+          return (productCidA, recordCidA, productCidB, recordCidB, recordCidsB)
+
+      MakeProcessingRequest : (ProductCid, ProcessingRequestCid, [RecordCid])
+        with
+          processor : Party
+          location : Location
+          outputType : Text
+        do
+          assert ((isNone requestObserver) && (isNone offerObserver))
+          assert (state == IDLE)
+          assert (productInfo.amount.quantity > 0.0)
+
+          processingRequestCid <- create ProcessingRequest with
+            productKey = (owner, productId)
+            productId
+            location
+            inputProduct = productInfo
+            processor
+            outputType
+            productOwner = owner
+            currentHandler = handler
+
+          productCid <- create this with
+            requestObserver = Some processor
+            state = PROCESSING_REQUESTED
+            version = version + 1
+            orderCid = Some (ProcessingRequestCidTag processingRequestCid)
+
+          oldRecordCids <- forA recordKeys $ \k -> do
+            exerciseByKey @Record k SetRequestObserverOnRecord with 
+              newRequestObserver = processor
+
+          return (productCid, processingRequestCid, oldRecordCids)
+
+      MakeTransportationRequest : (ProductCid, TransportationRequestCid, [RecordCid])
+        with
+          transporter : Party
+          startLocation : Location
+          endLocation : Location
+        do
+          assert (isNone requestObserver)
+          assert (isNone offerObserver)
+          assert (state == IDLE)
+          assert (productInfo.amount.quantity > 0.0)
+
+          transportationRequestCid <- create TransportationRequest with
+            productKey = (owner, productId)
+            productId
+            productForTransport = productInfo
+            transporter
+            productOwner = owner
+            startLocation
+            endLocation
+            currentHandler = handler
+
+          productCid <- create this with
+            requestObserver = Some transporter
+            state = TRANSPORTATION_REQUESTED
+            version = version + 1
+            orderCid = Some (TransportationRequestCidTag transportationRequestCid)
+
+          oldRecordCids <- forA recordKeys $ \k -> do
+            exerciseByKey @Record k SetRequestObserverOnRecord with 
+              newRequestObserver = transporter
+
+          return (productCid, transportationRequestCid, oldRecordCids)
+
+      MakeSaleRequest : (ProductCid, SaleRequestCid, [RecordCid])
+        with
+          buyer : Party
+          price : Decimal
+          currency : Text
+        do
+          assert (isNone requestObserver)
+          assert (isNone offerObserver)
+          assert (state == IDLE)
+
+          saleRequestCid <- create SaleRequest with
+            productKey = (owner, productId)
+            buyer
+            price
+            currency
+            currentHandler = handler
+            productOwner = owner
+            productId
+            productInfo = productInfo
+
+          productCid <- create this with
+            offerObserver = Some buyer
+            state = SALE_REQUESTED
+            version = version + 1
+            orderCid = Some (SaleRequestCidTag saleRequestCid)
+
+          oldRecordCids <- forA recordKeys $ \k -> do
+            exerciseByKey @Record k SetOfferObserverOnRecord with 
+              newOfferObserver = buyer
+
+          return (productCid, saleRequestCid, oldRecordCids)
+
+    controller handler can
+      MakeHandoverRequest : (ProductCid, HandoverRequestCid, [RecordCid])
+        with
+          newHandler : Party
+        do
+          assert (isNone requestObserver)
+          assert (isNone offerObserver)
+          assert (state == IDLE)
+
+          handoverRequestCid <- create HandoverRequest with
+            productKey = (owner, productId)
+            newHandler
+            oldHandler = handler
+            productOwner = owner
+            productId
+            productInfo
+
+          productCid <- create this with
+            requestObserver = Some newHandler
+            state = HANDOVER_REQUESTED
+            version = version + 1
+            orderCid = Some (HandoverRequestCidTag handoverRequestCid)
+
+          oldRecordCids <- forA recordKeys $ \k -> do
+            exerciseByKey @Record k SetRequestObserverOnRecord with 
+              newRequestObserver = newHandler
+
+          return (productCid, handoverRequestCid, oldRecordCids)
+
+      AddHandoverRecordToProduct : (ProductCid, RecordCid, [RecordCid])
+        with
+          recordId : Text
+          recordTime : Time
+          recordOldHandler : Party
+          recordNewHandler : Party
+        do
+          assert (recordOldHandler == handler)
+          assert (recordTime > lastUpdated)
+          assert (state == IDLE)
+
+          let recordKey = (recordOldHandler, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = HANDOVER
+            productId
+            recordId
+            completionTime = recordTime
+            actor = recordOldHandler
+            productOwner = owner
+            details = HandoverRecordDetailsTag HandoverRecordDetails with
+              oldHandler = recordOldHandler
+              newHandler = recordNewHandler
+              time = recordTime
+              product = productInfo
+            productCurrentHandler = recordNewHandler
+            requestObserver = None
+            offerObserver = None
+
+          let newLastUpdated = if (null recordKeys) then recordTime else (max recordTime lastUpdated)
+
+          oldRecordCids <- forA recordKeys $ \k -> do
+            exerciseByKey @Record k ListNewHandlerOnRecord with newHandler = recordNewHandler
+
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = newLastUpdated
+            recordKeys = recordKeys ++ [recordKey]
+            lastRecordType = HANDOVER
+            handler = recordNewHandler
+
+          return (productCid, recordCid, oldRecordCids)
+
+      AddProductionRecordToProduct : (ProductCid, RecordCid)
+        with
+          recordId : Text
+          recordProducer : Party
+          recordTime : Time
+          recordLocation : Location
+          recordAmount : Amount
+          recordPlotId : Text
+          recordLabel : Text
+        do
+          assert (recordProducer == handler)
+          assert (not isProcessed)
+          assert (recordAmount.quantity >= 0.0)
+          -- assert (lastRecordType == UNDEFINED || lastRecordType == PRODUCTION)
+          assert (state == IDLE)
+
+          let recordKey = (recordProducer, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = PRODUCTION
+            productId
+            recordId
+            completionTime = recordTime
+            actor = recordProducer
+            productOwner = owner
+            details = ProductionRecordDetailsTag ProductionRecordDetails with
+              product = ProductInfo with
+                typeId = productInfo.typeId
+                labels = [recordLabel]
+                amount = recordAmount
+              time = recordTime
+              location = recordLocation
+              plotId = recordPlotId
+            productCurrentHandler = handler
+            requestObserver = None
+            offerObserver = None
+
+          let newQuantity = productInfo.amount.quantity + recordAmount.quantity
+          let newLastUpdated = if (null recordKeys) then recordTime else (max recordTime lastUpdated)
+          let newRecordKeys = recordKeys ++ [recordKey]
+
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = newLastUpdated
+            productInfo = ProductInfo with
+              amount = Amount with
+                unit = productInfo.amount.unit
+                quantity = newQuantity
+              labels = productInfo.labels ++ [recordLabel]
+              typeId = productInfo.typeId
+            recordKeys = recordKeys ++ [recordKey]
+            lastRecordType = PRODUCTION
+
+          return (productCid, recordCid)
+
+      AddStartProcessingRecordToProduct : (ProductCid, RecordCid, ActiveProcessingOrderCid)
+        with
+          processId : Text
+          recordId : Text
+          recordProcessor : Party
+          recordStartTime : Time
+          recordLocation : Location
+          outputType : Text
+        do
+          assert (recordProcessor == handler)
+          assert (recordStartTime > lastUpdated)
+          assert (productInfo.amount.quantity > 0.0)
+          assert (state == IDLE)
+
+          let recordKey = (recordProcessor, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = PROCESSING_START
+            productId
+            recordId
+            completionTime = recordStartTime
+            actor = recordProcessor
+            productOwner = owner
+            details = ProcessingStartRecordDetailsTag ProcessingStartRecordDetails with
+              inputProduct = productInfo
+              startTime = recordStartTime
+              location = recordLocation
+              processId
+            productCurrentHandler = handler
+            requestObserver = None
+            offerObserver = None
+
+          orderCid <- create ActiveProcessingOrder with
+            inputProduct = productInfo
+            outputType
+            productId
+            productKey = (owner, productId)
+            productOwner = owner
+            processor = recordProcessor
+            startTime = recordStartTime
+            processId
+            location = recordLocation
+
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = recordStartTime
+            recordKeys = recordKeys ++ [recordKey]
+            lastRecordType = PROCESSING_START
+            state = IN_PROCESS
+            orderCid = Some (ActiveProcessingOrderCidTag orderCid)
+
+          return (productCid, recordCid, orderCid)
+
+      AddProcessingRecordToProduct : (ProductCid, RecordCid, RecordCid)
+        with
+          recordId : Text
+          recordProcessor : Party
+          recordStartTime : Time
+          recordEndTime : Time
+          recordLocation : Location
+          recordOutputAmount : Amount
+          recordOutputType : Text
+          recordOutputLabel : Text
+        do
+          assert (recordProcessor == handler)
+          assert (recordEndTime > recordStartTime)
+          assert (recordStartTime > lastUpdated)
+          assert (productInfo.amount.quantity > 0.0)
+          assert (recordOutputAmount.quantity > 0.0)
+          assert (recordOutputAmount.quantity <= productInfo.amount.quantity)
+          assert (state == IDLE)
+          
+          let processId = mconcat [recordId, "_process"]
+          let startId = mconcat [recordId, "_start"]
+          let endId = mconcat [recordId, "_end"]
+
+          let startKey = (recordProcessor, productId, startId)
+          let endKey = (recordProcessor, productId, endId)
+
+          startRecordCid <- create Record with
+            recordType = PROCESSING_START
+            productId
+            recordId = startId
+            completionTime = recordStartTime
+            actor = recordProcessor
+            productOwner = owner
+            details = ProcessingStartRecordDetailsTag ProcessingStartRecordDetails with
+              inputProduct = productInfo
+              startTime = recordStartTime
+              location = recordLocation
+              processId
+            productCurrentHandler = handler
+            requestObserver = None
+            offerObserver = None
+
+          endRecordCid <- create Record with
+            recordType = PROCESSING_END
+            productId
+            recordId = endId
+            completionTime = recordEndTime
+            actor = recordProcessor
+            productOwner = owner
+            details = ProcessingEndRecordDetailsTag ProcessingEndRecordDetails with
+              outputProduct = ProductInfo with
+                typeId = recordOutputType
+                labels = [recordOutputLabel]
+                amount = recordOutputAmount
+              endTime = recordStartTime
+              location = recordLocation
+              processId
+            productCurrentHandler = handler
+            requestObserver = None
+            offerObserver = None
+
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = recordEndTime
+            isProcessed = True
+            productInfo = ProductInfo with
+              labels = [recordOutputLabel]
+              typeId = recordOutputType
+              amount = recordOutputAmount
+            recordKeys = recordKeys ++ [startKey, endKey]
+            lastRecordType = PROCESSING_END
+
+          return (productCid, startRecordCid, endRecordCid)
+
+      AddStartTransportationRecordToProduct : (ProductCid, RecordCid, ActiveTransportationOrderCid)
+        with
+          recordId : Text
+          recordTransporter : Party
+          recordStartTime : Time
+          recordStartLocation : Location
+          endLocation : Location
+        do
+          assert (recordTransporter == handler)
+          assert (recordStartTime > lastUpdated)
+          assert (productInfo.amount.quantity > 0.0)
+          assert (state == IDLE)
+
+          let transportId = mconcat [recordId, "_transport"]
+          let recordKey = (recordTransporter, productId, recordId)
+          
+          recordCid <- create Record with
+            recordType = TRANSPORTATION_START
+            productId
+            recordId
+            completionTime = recordStartTime
+            actor = recordTransporter
+            productOwner = owner
+            details = TransportationStartRecordDetailsTag TransportationStartRecordDetails with
+              productForTransport = productInfo
+              startTime = recordStartTime
+              startLocation = recordStartLocation
+              transportId
+            productCurrentHandler = handler
+            requestObserver = None
+            offerObserver = None
+
+          orderCid <- create ActiveTransportationOrder with
+            productForTransport = productInfo
+            productId
+            productKey = (owner, productId)
+            productOwner = owner
+            transporter = recordTransporter
+            startTime = recordStartTime
+            transportId
+            startLocation = recordStartLocation
+            endLocation
+
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = recordStartTime
+            recordKeys = recordKeys ++ [recordKey]
+            lastRecordType = TRANSPORTATION_START
+            state = IN_TRANSIT
+            orderCid = Some (ActiveTransportationOrderCidTag orderCid)
+
+          return (productCid, recordCid, orderCid)
+
+      AddTransportationRecordToProduct : (ProductCid, RecordCid, RecordCid)
+        with
+          recordId : Text
+          recordTransporter : Party
+          recordStartTime : Time
+          recordEndTime : Time
+          recordStartLocation : Location
+          recordEndLocation : Location
+        do
+          assert (recordTransporter == handler)
+          assert (recordEndTime > recordStartTime)
+          assert (recordStartTime > lastUpdated)
+          assert (productInfo.amount.quantity > 0.0)
+          assert (state == IDLE)
+
+          let transportId = mconcat [recordId, "_transport"]
+          let startId = mconcat [recordId, "_start"]
+          let endId = mconcat [recordId, "_end"]
+
+          let startKey = (recordTransporter, productId, startId)
+          let endKey = (recordTransporter, productId, endId)
+          
+          startRecordCid <- create Record with
+            recordType = TRANSPORTATION_START
+            productId
+            recordId = startId
+            completionTime = recordStartTime
+            actor = recordTransporter
+            productOwner = owner
+            details = TransportationStartRecordDetailsTag TransportationStartRecordDetails with
+              productForTransport = productInfo
+              startTime = recordStartTime
+              startLocation = recordStartLocation
+              transportId
+            productCurrentHandler = handler
+            requestObserver = None
+            offerObserver = None
+
+          endRecordCid <- create Record with
+            recordType = TRANSPORTATION_END
+            productId
+            recordId = endId
+            completionTime = recordEndTime
+            actor = recordTransporter
+            productOwner = owner
+            details = TransportationEndRecordDetailsTag TransportationEndRecordDetails with
+              productForTransport = productInfo
+              endTime = recordEndTime
+              endLocation = recordEndLocation
+              transportId
+            productCurrentHandler = handler
+            requestObserver = None
+            offerObserver = None
+          
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = recordEndTime
+            recordKeys = recordKeys ++ [startKey, endKey]
+            lastRecordType = TRANSPORTATION_END
+
+          return (productCid, startRecordCid, endRecordCid)
+
+
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+-- TRANSPORTATION REQUEST
+
+type TransportationRequestCid = ContractId TransportationRequest
+
+template TransportationRequest
+  with
+    productForTransport : ProductInfo
+    productId : Text
+    productKey : ProductKey
+    productOwner : Party
+    transporter : Party
+    startLocation : Location
+    endLocation : Location
+    currentHandler : Party
+  where
+    signatory productOwner
+
+    controller productOwner can
+      WithdrawTransportationRequest : (ProductCid, [RecordCid])
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k RemoveRequestObserverFromRecord
+
+          archive productCid
+
+          productCid <- create product with
+            state = IDLE
+            version = product.version + 1
+            requestObserver = None
+            orderCid = None
+
+          return (productCid, oldRecordCids)
+
+    controller transporter can
+      DeclineTransportationRequest : (ProductCid, [RecordCid])
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k DeclineRecordHandover
+
+          archive productCid
+
+          productCid <- create product with
+            version = product.version + 1
+            state = IDLE
+            requestObserver = None
+            orderCid = None
+
+          return (productCid, oldRecordCids)
+
+      AcceptTransportationRequest : (ProductCid, NewTransportationOrderCid, RecordCid, [RecordCid])
+        with
+          recordTime : Time
+          recordId : Text
+          transportId : Text
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          assert (recordTime > product.lastUpdated)
+
+          orderCid <- create NewTransportationOrder with
+            productForTransport
+            productId
+            productKey
+            productOwner
+            transporter
+            startTime = recordTime
+            transportId
+            startLocation
+            endLocation
+            handoverTime = recordTime
+
+          let sameHandler = transporter == currentHandler
+          let recordKey = (productOwner, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = HANDOVER
+            productId
+            recordId
+            completionTime = recordTime
+            actor = productOwner
+            productOwner
+            details = HandoverRecordDetailsTag HandoverRecordDetails with
+              oldHandler = currentHandler
+              newHandler = transporter
+              time = recordTime
+              product = productForTransport
+            productCurrentHandler = transporter
+            requestObserver = None
+            offerObserver = None
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k AcceptRecordHandover
+
+          archive productCid
+
+          productCid <- create product with
+            version = product.version + 1
+            lastUpdated = recordTime
+            recordKeys = product.recordKeys ++ [recordKey]
+            lastRecordType = HANDOVER
+            handler = transporter
+            state = TRANSPORTATION_ACCEPTED
+            requestObserver = None
+            orderCid = Some (NewTransportationOrderCidTag orderCid)
+
+          return (productCid, orderCid, recordCid, oldRecordCids)
+
+
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+-- NEW TRANSPORTATION ORDER
+
+type NewTransportationOrderCid = ContractId NewTransportationOrder
+
+template NewTransportationOrder
+  with
+    productForTransport : ProductInfo
+    productId : Text
+    productKey : ProductKey
+    productOwner : Party
+    transporter : Party
+    startTime : Time
+    transportId : Text
+    startLocation : Location
+    endLocation : Location
+    handoverTime : Time
+  where
+    signatory productOwner, transporter
+
+    controller transporter can
+      StartTransportationOrder : (ProductCid, ActiveTransportationOrderCid, RecordCid)
+        with
+          recordTime : Time
+          recordId : Text
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          assert (recordTime > product.lastUpdated)
+
+          orderCid <- create ActiveTransportationOrder with
+            productForTransport
+            productId
+            productKey
+            productOwner
+            transporter
+            startTime = recordTime
+            transportId
+            startLocation
+            endLocation
+
+          let recordKey = (transporter, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = TRANSPORTATION_START
+            productId
+            recordId
+            completionTime = recordTime
+            actor = transporter
+            productOwner
+            details = TransportationStartRecordDetailsTag TransportationStartRecordDetails with
+              transportId
+              productForTransport
+              startTime = recordTime
+              startLocation
+            productCurrentHandler = transporter
+            requestObserver = None
+            offerObserver = None
+
+          archive productCid
+
+          productCid <- create product with
+            version = product.version + 1
+            lastUpdated = recordTime
+            recordKeys = product.recordKeys ++ [recordKey]
+            lastRecordType = TRANSPORTATION_START
+            handler = transporter
+            state = IN_TRANSIT
+            requestObserver = None
+            orderCid = Some (ActiveTransportationOrderCidTag orderCid)
+
+          return (productCid, orderCid, recordCid)
+
+
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+-- ACTIVE TRANSPORTATION ORDER
+
+type ActiveTransportationOrderCid = ContractId ActiveTransportationOrder
+
+template ActiveTransportationOrder
+  with
+    productForTransport : ProductInfo
+    productId : Text
+    productKey : ProductKey
+    productOwner : Party
+    transporter : Party
+    startTime : Time
+    transportId : Text
+    startLocation : Location
+    endLocation : Location
+  where
+    signatory productOwner, transporter
+
+    controller transporter can
+      CompleteTransportationOrder : (ProductCid, RecordCid)
+        with
+          recordId : Text
+          recordTime : Time
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          assert (recordTime > product.lastUpdated)
+
+          let recordKey = (transporter, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = TRANSPORTATION_END
+            productId
+            recordId
+            completionTime = recordTime
+            actor = transporter
+            productOwner
+            details = TransportationEndRecordDetailsTag TransportationEndRecordDetails with
+              transportId
+              productForTransport
+              endTime = recordTime
+              endLocation = endLocation
+            productCurrentHandler = transporter
+            requestObserver = None
+            offerObserver = None
+
+          archive productCid
+
+          productCid <- create product with
+            version = product.version + 1
+            lastUpdated = recordTime
+            recordKeys = product.recordKeys ++ [recordKey]
+            lastRecordType = TRANSPORTATION_END
+            handler = transporter
+            state = IDLE
+            orderCid = None
+
+          return (productCid, recordCid)
+
+
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+-- PROCESSING REQUEST
+
+type ProcessingRequestCid = ContractId ProcessingRequest
+
+template ProcessingRequest
+  with
+    inputProduct : ProductInfo
+    outputType : Text
+    productId : Text
+    productKey : ProductKey
+    productOwner : Party
+    processor : Party
+    location : Location
+    currentHandler : Party
+  where
+    signatory productOwner
+
+    controller productOwner can
+      WithdrawProcessingRequest : (ProductCid, [RecordCid])
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k RemoveRequestObserverFromRecord
+
+          archive productCid
+
+          productCid <- create product with
+            state = IDLE
+            version = product.version + 1
+            requestObserver = None
+            orderCid = None
+
+          return (productCid, oldRecordCids)
+
+    controller processor can
+      DeclineProcessingRequest : (ProductCid, [RecordCid])
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k DeclineRecordHandover
+
+          archive productCid
+
+          productCid <- create product with
+            state = IDLE
+            version = product.version + 1
+            requestObserver = None
+            orderCid = None
+
+          return (productCid, oldRecordCids)
+
+      AcceptProcessingRequest : (ProductCid, NewProcessingOrderCid, RecordCid, [RecordCid])
+        with
+          recordId : Text
+          processId : Text
+          recordTime : Time
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          assert (recordTime > product.lastUpdated)
+
+          orderCid <- create NewProcessingOrder with
+            inputProduct
+            outputType
+            productId
+            productKey
+            productOwner
+            processor
+            processId
+            location
+            handoverTime = recordTime
+
+          recordCid <- create Record with
+            recordType = HANDOVER
+            productId
+            recordId
+            completionTime = recordTime
+            actor = productOwner
+            productOwner
+            details = HandoverRecordDetailsTag HandoverRecordDetails with
+              oldHandler = currentHandler
+              newHandler = processor
+              time = recordTime
+              product = inputProduct
+            productCurrentHandler = processor
+            requestObserver = None
+            offerObserver = None
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k AcceptRecordHandover
+
+          archive productCid
+
+          let recordKey = (productOwner, productId, recordId)
+
+          productCid <- create product with
+            version = product.version + 1
+            lastUpdated = recordTime
+            recordKeys = product.recordKeys ++ [recordKey]
+            lastRecordType = HANDOVER
+            handler = processor
+            state = PROCESSING_ACCEPTED
+            requestObserver = None
+            orderCid = Some (NewProcessingOrderCidTag orderCid)
+
+          return (productCid, orderCid, recordCid, oldRecordCids)
+
+
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+-- NEW PROCESSING ORDER
+
+type NewProcessingOrderCid = ContractId NewProcessingOrder
+
+template NewProcessingOrder
+  with
+    inputProduct : ProductInfo
+    outputType : Text
+    productId : Text
+    productKey : ProductKey
+    productOwner : Party
+    processor : Party
+    processId : Text
+    location : Location
+    handoverTime : Time
+  where
+    signatory productOwner, processor
+
+    controller processor can
+      StartProcessingOrder : (ProductCid, ActiveProcessingOrderCid, RecordCid)
+        with
+          recordTime : Time
+          recordId : Text
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          assert (recordTime > product.lastUpdated)
+
+          orderCid <- create ActiveProcessingOrder with
+            inputProduct
+            outputType
+            productId
+            productKey
+            productOwner
+            processor
+            processId
+            location
+            startTime = recordTime
+
+          let recordKey = (processor, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = PROCESSING_START
+            productId
+            recordId
+            completionTime = recordTime
+            actor = processor
+            productOwner
+            details = ProcessingStartRecordDetailsTag ProcessingStartRecordDetails with
+              processId
+              inputProduct
+              startTime = recordTime
+              location
+            productCurrentHandler = processor
+            requestObserver = None
+            offerObserver = None
+
+          archive productCid
+
+          productCid <- create product with
+            version = product.version + 1
+            lastUpdated = recordTime
+            recordKeys = product.recordKeys ++ [recordKey]
+            lastRecordType = PROCESSING_START
+            handler = processor
+            state = IN_PROCESS
+            requestObserver = None
+            orderCid = Some (ActiveProcessingOrderCidTag orderCid)
+
+          return (productCid, orderCid, recordCid)
+
+
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+-- ACTIVE PROCESSING ORDER
+
+type ActiveProcessingOrderCid = ContractId ActiveProcessingOrder
+
+template ActiveProcessingOrder
+  with
+    inputProduct : ProductInfo
+    outputType : Text
+    productId : Text
+    productKey : ProductKey
+    productOwner : Party
+    processor : Party
+    startTime : Time
+    processId : Text
+    location : Location
+  where
+    signatory productOwner, processor
+
+    controller processor can
+      CompleteProcessingOrder : (ProductCid, RecordCid)
+        with
+          recordId : Text
+          recordTime : Time
+          recordOutputProduct : ProductInfo
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          assert (recordTime > product.lastUpdated)
+          assert (recordOutputProduct.amount.quantity > 0.0)
+
+          let recordKey = (processor, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = PROCESSING_END
+            productId
+            recordId
+            completionTime = recordTime
+            actor = processor
+            productOwner
+            details = ProcessingEndRecordDetailsTag ProcessingEndRecordDetails with
+              processId
+              outputProduct = recordOutputProduct
+              endTime = recordTime
+              location
+            productCurrentHandler = processor
+            requestObserver = None
+            offerObserver = None
+
+          archive productCid
+
+          productCid <- create product with
+            isProcessed = True
+            version = product.version + 1
+            lastUpdated = recordTime
+            recordKeys = product.recordKeys ++ [recordKey]
+            lastRecordType = PROCESSING_END
+            handler = processor
+            state = IDLE
+            orderCid = None
+            productInfo = ProductInfo with
+              amount = recordOutputProduct.amount
+              typeId = recordOutputProduct.typeId
+              labels = recordOutputProduct.labels
+
+          return (productCid, recordCid)
+
+
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+-- HANDOVER REQUEST
+
+type HandoverRequestCid = ContractId HandoverRequest
+
+template HandoverRequest
+  with
+    productInfo : ProductInfo
+    productId : Text
+    productKey : ProductKey
+    productOwner : Party
+    oldHandler : Party
+    newHandler : Party
+  where
+    signatory productOwner, oldHandler
+
+    controller oldHandler can
+      WithdrawHandoverRequest : (ProductCid, [RecordCid])
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k RemoveRequestObserverFromRecord
+
+          archive productCid
+
+          productCid <- create product with
+            state = IDLE
+            version = product.version + 1
+            requestObserver = None
+            orderCid = None
+
+          return (productCid, oldRecordCids)
+
+    controller newHandler can
+      DeclineHandoverRequest : (ProductCid, [RecordCid])
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k DeclineRecordHandover
+
+          archive productCid
+
+          productCid <- create product with
+            version = product.version + 1
+            state = IDLE
+            requestObserver = None
+            orderCid = None
+
+          return (productCid, oldRecordCids)
+
+      AcceptHandoverRequest : (ProductCid, RecordCid, [RecordCid])
+        with
+          recordId : Text
+          recordTime : Time
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          assert (product.handler == oldHandler)
+          assert (recordTime > product.lastUpdated)
+
+          let recordKey = (oldHandler, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = HANDOVER
+            productId
+            recordId
+            completionTime = recordTime
+            actor = oldHandler
+            productOwner
+            details = HandoverRecordDetailsTag HandoverRecordDetails with
+              oldHandler
+              newHandler = newHandler
+              time = recordTime
+              product = productInfo
+            productCurrentHandler = newHandler
+            requestObserver = None
+            offerObserver = None
+
+          let newLastUpdated = if (null product.recordKeys) then recordTime else (max recordTime product.lastUpdated)
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k AcceptRecordHandover
+
+          archive productCid
+
+          productCid <- create product with
+            version = product.version + 1
+            lastUpdated = newLastUpdated
+            recordKeys = product.recordKeys ++ [recordKey]
+            lastRecordType = HANDOVER
+            handler = newHandler
+            state = IDLE
+            requestObserver = None
+            orderCid = None
+
+          return (productCid, recordCid, oldRecordCids)
+
+
+
+------------------------------------------------------------------
+------------------------------------------------------------------
+-- SALE REQUEST
+
+type SaleRequestCid = ContractId SaleRequest
+
+template SaleRequest
+  with
+    productInfo : ProductInfo
+    productId : Text
+    productKey : ProductKey
+    productOwner : Party
+    currentHandler : Party
+    price : Decimal
+    currency : Text
+    buyer : Party
+  where
+    signatory productOwner
+
+    controller productOwner can
+      WithdrawSaleRequest : (ProductCid, [RecordCid])
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k RemoveOfferObserverFromRecord
+
+          archive productCid
+
+          productCid <- create product with
+            state = IDLE
+            version = product.version + 1
+            offerObserver = None
+            orderCid = None
+
+          return (productCid, oldRecordCids)
+
+    controller buyer can
+      DeclineSaleRequest : (ProductCid, [RecordCid])
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k DeclineRecordSale
+
+          archive productCid
+
+          productCid <- create product with
+            version = product.version + 1
+            state = IDLE
+            offerObserver = None
+            orderCid = None
+
+          return (productCid, oldRecordCids)
+
+      AcceptSaleRequest : (ProductCid, RecordCid, [RecordCid])
+        with
+          recordId : Text
+          recordTime : Time
+        do
+          (productCid, product) <- fetchByKey @Product productKey
+
+          assert (recordTime > product.lastUpdated)
+
+          let recordKey = (productOwner, productId, recordId)
+
+          recordCid <- create Record with
+            recordType = SALE
+            productId
+            recordId
+            completionTime = recordTime
+            actor = productOwner
+            productOwner = buyer
+            details = SaleRecordDetailsTag SaleRecordDetails with
+              seller = productOwner
+              buyer
+              price
+              time = recordTime
+              currency
+              product = productInfo
+            productCurrentHandler = currentHandler
+            offerObserver = None
+            requestObserver = None
+
+          let newLastUpdated = if (null product.recordKeys) then recordTime else (max recordTime product.lastUpdated)
+
+          oldRecordCids <- forA product.recordKeys $ \k -> do
+            exerciseByKey @Record k AcceptRecordSale
+
+          archive productCid
+
+          productCid <- create product with
+            version = product.version + 1
+            lastUpdated = newLastUpdated
+            recordKeys = product.recordKeys ++ [recordKey]
+            lastRecordType = SALE
+            state = IDLE
+            offerObserver = None
+            orderCid = None
+            owner = buyer
+
+          return (productCid, recordCid, oldRecordCids)
+

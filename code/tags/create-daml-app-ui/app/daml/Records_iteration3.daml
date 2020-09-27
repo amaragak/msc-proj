@@ -1,0 +1,41 @@
+daml 1.2
+
+module Records_iteration3 where
+
+import Types
+import DA.Next.Set
+
+-- Iteration 3 notes:
+--   Pretty much starting from scratch and build up.
+--   The ProducerRecord and Quota contracts from iteration2 deleted. Handled in FarmingCoop.daml
+--   Include files array and observers set
+
+---------------------------------
+-- PRODUCTION RECORD
+
+template ProductionRecord
+  with
+    producer : Party
+    observers : Set Party
+    productTypeId : Text
+    productLabel : Text
+    amount : Amount
+    event : Event
+    files : [FileReference]
+  where
+    signatory producer
+    observer observers
+    controller producer can
+      AddFile : ContractId ProductionRecord
+        with
+          file : FileReference
+        do
+          create this with 
+            files = files ++ [file]
+      AddObserver : ContractId ProductionRecord
+        with
+          newObserver : Party
+        do
+          create this with 
+            observers = insert newObserver observers
+ 

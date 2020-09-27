@@ -1,0 +1,164 @@
+daml 1.2
+
+module Records where
+
+import DA.Next.Set
+import Types
+
+
+---------------------------------
+-- PRODUCTION RECORD
+ 
+template ProductionRecord_old
+ with
+   producer : Party
+   productLabel : Text
+   productType : Text
+   amount : Amount
+   event : Event
+ where
+   signatory producer
+
+template ProductionRecord
+  with
+    producerRecord : ProducerRecord
+    productType : ProductType
+    productLabel : Text
+    amount : Amount
+    event : Event
+  where
+    signatory producerRecord.producer
+ 
+template ProducerRecord
+  with
+    producer : Party
+    admin : Party
+    producerId : Text
+    quotas : [Quota]
+  where
+    -- ensure producer == quota.producer
+    signatory admin
+    observer producer
+    {-choice AddQuota : ContractId Quota
+      with
+        inspector : Party
+        amount : Amount
+        productType : ProductType
+      controller inspector
+        do-}
+
+  
+template Quota
+  with
+    producer : Party
+    inspector : Party
+    amount : Amount
+    productType : ProductType
+  where 
+    signatory inspector
+    observer producer
+
+template ProductType
+  with
+    description : Text
+    productTypeId : Text
+    admin : Party
+    producers : Set Party
+  where
+    signatory admin
+    observer producers
+    choice AddProducer : ContractId ProductType
+      with 
+        producer: Party
+      controller admin
+        do 
+          create this with 
+            producers = insert producer producers
+
+    nonconsuming choice CreateProductionRecord : ContractId ProductionRecord
+      with
+        producerRecord : ProducerRecord
+        productLabel : Text
+        amount : Amount
+        event : Event
+      controller producerRecord.producer
+        do
+          create ProductionRecord with
+            productType = this
+            producerRecord
+            productLabel
+            amount
+            event
+
+test = scenario do
+  admin <- getParty "Admin"
+  producer <- getParty "PG Tips"
+  now <- getTime
+
+  productTypeCid <- submit admin do
+    create ProductType with
+      description = "Tea"
+      productTypeId = "123abc"
+      admin
+      producers = empty
+
+  productTypeCid <- submit admin do
+    exercise productTypeCid AddProducer with
+      producer
+
+  producerRecordCid <- submit admin do
+    create ProducerRecord with
+      admin
+      producer
+      producerId = "producer1"
+      quotas = []
+
+  productionRecordCid <- submit producer do
+    producerRecord <- fetch producerRecordCid
+    exercise productTypeCid CreateProductionRecord with
+      producerRecord
+      productLabel = "PG Tips Tea"
+      amount = Amount with
+        quantity = 1.0
+        unit = "kg"
+      event = Event with
+        time = now
+        location = "wigan"
+
+  return productionRecordCid
+
+
+
+ 
+---------------------------------
+-- PROCESSING RECORD
+ 
+template ProcessingRecord
+ with
+   processor : Party
+   processDescription : Text
+   inputProductLabel : Text
+   inputProductType : Text
+   outputProductLabel : Text
+   outputProductType : Text
+   inputAmount : Amount
+   outputAmount : Amount
+   startEvent : Event
+   endEvent : Event
+ where
+   signatory processor
+ 
+ 
+---------------------------------
+-- TRANSPORTATION RECORD
+ 
+template TransportationRecord
+ with
+   transporter : Party
+   productLabel : Text
+   productType : Text
+   amount : Amount
+   startEvent : Event
+   endEvent : Event
+ where
+   signatory transporter

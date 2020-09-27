@@ -1,0 +1,38 @@
+module ServiceRequest where
+
+template ServiceRequest
+  with
+    serviceProvider : Party
+    client : Party
+    auditor : Party
+    serviceDescription : Text
+  where
+    signatory client
+    observer auditor
+    controller serviceProvider can
+      Accept : ContractId ServiceOrder
+        with
+          startTime : Time
+        do
+          create ServiceOrder with
+            serviceProvider
+            client
+            auditor
+            serviceDescription
+            startTime
+      Decline : ()
+        do return ()
+
+template ServiceOrder
+  with
+    serviceProvider : Party
+    client : Party
+    auditor : Party
+    serviceDescription : Text
+    startTime : Time
+  where
+    signatory client, serviceProvider
+    observer auditor
+    controller serviceProvider can
+      Complete : ()
+        do return ()

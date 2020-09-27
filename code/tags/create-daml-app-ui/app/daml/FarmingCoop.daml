@@ -1,0 +1,106 @@
+daml 1.2
+
+module FarmingCoop where
+
+import Types
+
+type FarmingCoopKey = (Party, Text)
+type FarmerKey = (Party, PersonName)
+type PlotKey = (Party, PersonName, Int)
+
+template FarmingCoop
+  with
+    coopParty : Party
+    name : Text
+    farmers : [FarmerKey]
+  where
+    signatory coopParty
+    key (coopParty, name) : FarmingCoopKey
+    maintainer key._1
+    controller coopParty can
+      AddFarmer : (ContractId FarmingCoop, ContractId Farmer)
+        with
+          farmerName : PersonName
+          contactNumbers : [Text]
+          contactAddress : Text
+        do
+          let newFarmerKey = (coopParty, farmerName)
+          assert (notElem newFarmerKey farmers)
+
+          farmer <- create Farmer with
+            coopParty
+            farmerName
+            contactNumbers
+            contactAddress
+            plots = []
+
+          farmingCoop <- create this with
+            farmers = farmers ++ [newFarmerKey]
+
+          return (farmingCoop, farmer);
+
+template Farmer
+  with
+    coopParty : Party
+    farmerName : PersonName
+    contactNumbers : [Text]
+    contactAddress : Text
+    plots : [PlotKey]
+  where
+    signatory coopParty
+    key (coopParty, farmerName) : FarmerKey
+    maintainer key._1
+    controller coopParty can
+      AddPlot : (ContractId Farmer, ContractId Plot)
+        with
+          plotNumber : Int
+          gpsLocation : Text
+        do
+          let newPlotKey = (coopParty, farmerName, plotNumber)
+          assert (notElem newPlotKey plots)
+
+          plot <- create Plot with
+            plotNumber
+            farmerName
+            coopParty
+            gpsLocation
+
+          farmer <- create this with
+            plots = plots ++ [newPlotKey]
+
+          return (farmer, plot);
+
+template Plot
+  with
+    plotNumber : Int
+    farmerName : PersonName
+    coopParty : Party
+    gpsLocation : Text
+  where
+    signatory coopParty
+    key (coopParty, farmerName, plotNumber) : PlotKey
+    maintainer key._1
+
+test = scenario do
+  coopParty <- getParty "Coop"
+  farmingCoopCid <- submit coopParty do
+    create FarmingCoop with
+      name = "Coop"
+      coopParty
+      farmers = []
+
+  (farmingCoopCid, farmerCid) <- submit coopParty do
+    exercise farmingCoopCid AddFarmer with
+      farmerName = PersonName with
+        firstname = "Alex"
+        lastname = "Maragakis"
+        title = "Mr"
+      contactNumbers = ["+44 7123456789"]
+      contactAddress = "67 Wigan"
+
+  (farmerCid, plotCid) <- submit coopParty do
+    exercise farmerCid AddPlot with
+      plotNumber = 1
+      gpsLocation = "1 0"
+
+  return farmingCoopCid;

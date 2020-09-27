@@ -1,0 +1,86 @@
+daml 1.2
+
+module Record where
+
+import Types
+
+type RecordKey = (Party, Text) -- (actor, recordId)
+
+data RecordType
+  = UNDEFINED
+  | PRODUCTION
+  | PROCESSING
+  | TRANSPORTATION
+  | STORAGE
+  | HANDOVER
+    deriving (Eq, Show)
+
+data RecordDetails 
+  = ProductionRecord ProductionRecordDetails
+  | ProcessingRecord ProcessingRecordDetails
+  | TransportationRecord TransportationRecordDetails
+  | StorageRecord StorageRecordDetails
+  | HandoverRecord HandoverRecordDetails
+  deriving (Eq, Show)
+
+data ProductionRecordDetails = ProductionRecordDetails
+  with
+    product : ProductInfo
+    location : Location
+    plotId : Text
+    time : Time
+      deriving (Eq, Show)
+
+data ProcessingRecordDetails = ProcessingRecordDetails
+  with
+    inputProduct : ProductInfo
+    outputProduct : ProductInfo
+    startTime : Time
+    endTime : Time
+    location : Location
+      deriving (Eq, Show)
+
+data TransportationRecordDetails = TransportationRecordDetails
+  with
+    product : ProductInfo
+    startLocation : Location
+    endLocation : Location
+    startTime : Time
+    endTime : Time
+      deriving (Eq, Show)
+
+data StorageRecordDetails = StorageRecordDetails
+  with
+    product : ProductInfo
+    location : Location
+    startTime : Time
+    endTime : Time
+      deriving (Eq, Show)
+
+data HandoverRecordDetails = HandoverRecordDetails
+  with
+    newHandler : Party
+    time : Time
+      deriving (Eq, Show)
+
+template Record
+  with
+    recordType : RecordType
+    productId : Text -- product-specific GUID
+    recordId : Text -- record-specific GUID
+    completionTime : Time -- used for sorting the audit trail
+    details : RecordDetails
+    actor : Party
+    productOwner : Party
+    productCurrentHandler : Party
+  where
+    signatory actor
+    observer productOwner, productCurrentHandler
+    key (actor, recordId) : RecordKey
+    maintainer key._1
+    controller productCurrentHandler can
+      ListNewHandlerOnRecord : ContractId Record
+        with
+          newHandler : Party
+        do
+          create this with productCurrentHandler = newHandler

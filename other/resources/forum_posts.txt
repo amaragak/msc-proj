@@ -1,0 +1,27 @@
+-----------
+Forum Posts
+-----------
+
+DAML: Associated records on a ledger
+https://discuss.daml.com/t/associated-records-on-a-ledger/704
+
+Should everything be on the ledger?
+(https://discuss.daml.com/t/should-everything-be-on-the-ledger/751/4)
+
+Contracts that reference unobserved contracts
+https://discuss.daml.com/t/contracts-that-reference-unobserved-contracts/758
+
+Party permissions
+https://discuss.daml.com/t/party-permissions/779
+
+DAML Oracles
+https://discuss.daml.com/t/daml-oracles/822
+
+Making contracts public by default
+https://discuss.daml.com/t/making-contracts-public-by-default/817
+
+Global data
+https://discuss.daml.com/t/global-data/791
+
+On Attachments: what you should and shouldn't store on a ledger
+https://discuss.daml.com/t/on-attachments-what-you-should-and-shouldnt-store-on-a-ledger/579

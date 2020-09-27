@@ -1,0 +1,55 @@
+module Records where 
+ 
+import Types
+ 
+
+
+---------------------------------
+-- PRODUCTION RECORD
+ 
+template ProductionRecord
+ with
+   producer : Party
+   productLabel : Text
+   productType : Text
+   amount : Amount
+   event : Event
+ where
+   signatory producer
+ 
+ 
+ 
+---------------------------------
+-- PROCESSING RECORD
+ 
+template ProcessingRecord
+ with
+   processor : Party
+   processDescription : Text
+   inputProductLabel : Text
+   inputProductType : Text
+   outputProductLabel : Text
+   outputProductType : Text
+   inputAmount : Amount
+   outputAmount : Amount
+   startEvent : Event
+   endEvent : Event
+ where
+   signatory processor
+ 
+ 
+ 
+---------------------------------
+-- TRANSPORTATION RECORD
+ 
+template TransportationRecord
+ with
+   transporter : Party
+   productLabel : Text
+   productType : Text
+   amount : Amount
+   startEvent : Event
+   endEvent : Event
+ where
+   signatory transporter
+

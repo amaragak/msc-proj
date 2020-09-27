@@ -1,0 +1,307 @@
+-- Copyright (c) 2019 The DAML Authors. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+daml 1.2
+module Main where
+
+import Daml.Script
+import Product
+import Record
+import Types
+import DA.Time
+
+setup : Script ()
+setup = do
+  now <- getTime
+  let nowAndAbit = addRelTime now (hours 1)
+  let nowAndAbit2 = addRelTime now (hours 2)
+  let tomorrow = addRelTime now (days 1)
+  let tomorrowAndAbit = addRelTime tomorrow (hours 1)
+  let tomorrow2 = addRelTime now (days 2)
+  let tomorrow3 = addRelTime now (days 3)
+  let tomorrow3AndAbit = addRelTime tomorrow3 (hours 1)
+  let tomorrow4 = addRelTime now (days 4)
+  let tomorrow5 = addRelTime now (days 5)
+  alice <- allocatePartyWithHint "Alice" $ PartyIdHint with partyIdHint = "Alice"
+  producer <- allocatePartyWithHint "producer" $ PartyIdHint with partyIdHint = "producer"
+  processor <- allocatePartyWithHint "processor" $ PartyIdHint with partyIdHint = "processor"
+  transporter <- allocatePartyWithHint "transporter" $ PartyIdHint with partyIdHint = "transporter"
+
+  starbucksCid <- submit alice do
+    createCmd Product with
+      version = 1
+      lastUpdated = now
+      productId = "123"
+      isProcessed = False
+      description = "Coffee for Starbucks"
+      owner = alice
+      handler = alice
+      productLabels = []
+      productType = "coffee_beans"
+      amount = Amount with
+        quantity = 0.0
+        unit = "kg"
+      recordKeys = []
+      lastRecordType = UNDEFINED
+
+  (starbucksCid, recordCid) <- submit alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "1"
+      recordPlotId = "alice_plot1"
+      recordProducer = alice
+      recordTime = now
+      recordLabel = "coffee_00000001"
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (starbucksCid, recordCid) <- submit alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "2"
+      recordPlotId = "alice_plot2"
+      recordProducer = alice
+      recordTime = tomorrow
+      recordLabel = "coffee_00000002"
+      recordLocation = Location with
+        name = "Manchester"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 2.5
+        unit = "kg"
+
+  (starbucksCid, recordCid) <- submit alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "45"
+      recordPlotId = "alice_plot3"
+      recordProducer = alice
+      recordLabel = "coffee_00000003"
+      recordTime = nowAndAbit
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (starbucksCid, recordCid) <- submit alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "45336"
+      recordPlotId = "alice_plot4"
+      recordProducer = alice
+      recordTime = nowAndAbit2
+      recordLabel = "coffee_00000004"
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 9.0
+        unit = "kg"
+
+  (starbucksCid, recordCid) <- submit alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "789796"
+      recordPlotId = "alice_plot5"
+      recordProducer = alice
+      recordTime = now
+      recordLabel = "coffee_00000005"
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 2.0
+        unit = "kg"
+
+  nescafeCid <- submit alice do
+    createCmd Product with 
+      version = 1
+      lastUpdated = now
+      productId = "456"
+      isProcessed = False
+      description = "Coffee for Nescafe"
+      owner = alice
+      handler = alice
+      productLabels = []
+      productType = "coffee_beans"
+      amount = Amount with
+        quantity = 0.0
+        unit = "kg"
+      recordKeys = []
+      lastRecordType = UNDEFINED
+
+  (nescafeCid, recordCid) <- submit alice do
+    exerciseCmd nescafeCid AddProductionRecordToProduct with
+      recordId = "3"
+      recordPlotId = "alice_plot2"
+      recordLabel = "coffee_00000006"
+      recordProducer = alice
+      recordTime = now
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 1.0
+        unit = "kg"
+
+  (starbucksCid, recordCid) <- submit alice do
+    exerciseCmd starbucksCid AddProcessingRecordToProduct with
+      recordId = "fsa4"
+      recordProcessor = alice
+      recordStartTime = tomorrow2
+      recordEndTime = tomorrow3
+      recordLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      recordOutputAmount = Amount with
+        quantity = 17.0
+        unit = "kg"
+      recordOutputType = "roasted_coffee_beans"
+      recordOutputLabel = "roastedcoffee_00000001"
+
+  (starbucksCid, recordCid) <- submit alice do
+    exerciseCmd starbucksCid AddTransportationRecordToProduct with
+      recordId = "adsfff4"
+      recordTransporter = alice
+      recordStartTime = tomorrow4
+      recordEndTime = tomorrow5
+      recordStartLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      recordEndLocation = Location with
+        name = "Athens"
+        country = "Greece"
+
+  ------
+
+  orangesCid <- submit producer do
+    createCmd Product with
+      version = 1
+      lastUpdated = now
+      productId = "123dfgdf"
+      isProcessed = False
+      description = "Orange Juice (Batch #7)"
+      owner = producer
+      handler = producer
+      productLabels = []
+      productType = "oranges"
+      amount = Amount with
+        quantity = 0.0
+        unit = "kg"
+      recordKeys = []
+      lastRecordType = UNDEFINED
+
+  (orangesCid, recordCid) <- submit producer do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "12ert443"
+      recordPlotId = "producer_plot1"
+      recordProducer = producer
+      recordLabel = "oranges_00000001"
+      recordTime = now
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (orangesCid, recordCid) <- submit producer do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "sdass2"
+      recordPlotId = "producer_plot2"
+      recordLabel = "oranges_00000002"
+      recordProducer = producer
+      recordTime = tomorrow
+      recordLocation = Location with
+        name = "Manchester"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 2.5
+        unit = "kg"
+
+  (orangesCid, recordCid) <- submit producer do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "45sdsaaa"
+      recordPlotId = "producer_plot3"
+      recordProducer = producer
+      recordLabel = "oranges_00000003"
+      recordTime = nowAndAbit
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (orangesCid, recordCid) <- submit producer do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "453xxccc36"
+      recordPlotId = "producer_plot4"
+      recordProducer = producer
+      recordLabel = "oranges_00000004"
+      recordTime = nowAndAbit2
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 9.0
+        unit = "kg"
+
+  (orangesCid, recordCid) <- submit producer do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "7897dddf96"
+      recordPlotId = "producer_plot5"
+      recordProducer = producer
+      recordLabel = "oranges_00000005"
+      recordTime = now
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 3.5
+        unit = "kg"
+
+  (orangesCid, recordCid, ordRecordCids) <- submit producer do
+    exerciseCmd orangesCid AddHandoverRecordToProduct with
+      recordId = "adfhsja"
+      recordOldHandler = producer
+      recordNewHandler = processor
+      recordTime = tomorrowAndAbit
+
+  (orangesCid, recordCid) <- submit processor do
+    exerciseCmd orangesCid AddProcessingRecordToProduct with
+      recordId = "fsfgssdffga4"
+      recordProcessor = processor
+      recordStartTime = tomorrow2
+      recordEndTime = tomorrow3
+      recordLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      recordOutputAmount = Amount with
+        quantity = 20.0
+        unit = "litres"
+      recordOutputType = "orange_juice"
+      recordOutputLabel = "orangejuice_00000001"
+
+  (orangesCid, recordCid, ordRecordCids) <- submit processor do
+    exerciseCmd orangesCid AddHandoverRecordToProduct with
+      recordId = "adfddfdddhsja"
+      recordOldHandler = processor
+      recordNewHandler = transporter
+      recordTime = tomorrow3AndAbit
+
+  (orangesCid, recordCid) <- submit transporter do
+    exerciseCmd orangesCid AddTransportationRecordToProduct with
+      recordId = "adsdddffff4"
+      recordTransporter = transporter
+      recordStartTime = tomorrow4
+      recordEndTime = tomorrow5
+      recordStartLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      recordEndLocation = Location with
+        name = "Athens"
+        country = "Greece"
+
+  pure ()

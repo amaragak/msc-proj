@@ -1,0 +1,16 @@
+sdk-version: 1.2.0
+name: app
+version: 0.1.0
+source: daml
+parties:
+- Alice
+- Bob
+- Charlie
+dependencies:
+- daml-prim
+- daml-stdlib
+- daml-trigger
+sandbox-options:
+- --wall-clock-time
+- --ledgerid=app-sandbox
+start-navigator: false

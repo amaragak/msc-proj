@@ -1,0 +1,607 @@
+daml 1.2
+module SampleData where
+
+import Daml.Script
+import Types
+import SampleDataHelpers
+
+setup : Script ()
+setup = do
+  now <- getTime
+  admin_alice <- allocatePartyWithHint "Admin Alice" $ PartyIdHint with partyIdHint = "Admin Alice"
+  admin_alex <- allocatePartyWithHint "Admin Alex" $ PartyIdHint with partyIdHint = "Admin Alex"
+  buyer_barry <- allocatePartyWithHint "Buyer Barry" $ PartyIdHint with partyIdHint = "Buyer Barry"
+  buyer_bonzo <- allocatePartyWithHint "Buyer Bonzo" $ PartyIdHint with partyIdHint = "Buyer Bonzo"
+  farmer_fred <- allocatePartyWithHint "Farmer Fred" $ PartyIdHint with partyIdHint = "Farmer Fred"
+  farmer_felicity <- allocatePartyWithHint "Farmer Felicity" $ PartyIdHint with partyIdHint = "Farmer Felicity"
+  processor_polly <- allocatePartyWithHint "Processor Polly" $ PartyIdHint with partyIdHint = "Processor Polly"
+  processor_percy <- allocatePartyWithHint "Processor Percy" $ PartyIdHint with partyIdHint = "Processor Percy"
+  transporter_tim <- allocatePartyWithHint "Transporter Tim" $ PartyIdHint with partyIdHint = "Transporter Tim"
+  transporter_trish <- allocatePartyWithHint "Transporter Trish" $ PartyIdHint with partyIdHint = "Transporter Trish"
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- Untraded Product with Production Records
+-- "Oranges (Sample Data)"
+
+  (productId, recordIndex) <- init "sampledata:oranges"
+
+  productCid <- createNewProduct CreateProductArgs with
+    producer = farmer_fred
+    productId
+    productType = "oranges"
+    description = "Oranges (Sample Data)"
+    now
+  
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 5.0; unit = "kg"
+    plotId = "fred_plot1"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 15.0; unit = "kg"
+    plotId = "fred_plot2"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 10.0; unit = "kg"
+    plotId = "fred_plot3"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 14.0; unit = "kg"
+    plotId = "fred_plot4"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 27.0; unit = "kg"
+    plotId = "fred_plot5"
+    now
+
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- Untraded Product with a Processing Record
+-- "Coffee (Sample Data)"
+
+  (productId, recordIndex) <- init "sampledata:roasted_coffee"
+
+  productCid <- createNewProduct CreateProductArgs with
+    producer = farmer_fred
+    productId
+    productType = "coffee_beans"
+    description = "Coffee (Sample Data)"
+    now
+  
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 15.0; unit = "kg"
+    plotId = "fred_plot1"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 35.0; unit = "kg"
+    plotId = "fred_plot2"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 20.0; unit = "kg"
+    plotId = "fred_plot3"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 34.0; unit = "kg"
+    plotId = "fred_plot4"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 17.0; unit = "kg"
+    plotId = "fred_plot5"
+    now
+
+  (productCid, product) <- fetchProduct productCid farmer_fred 
+
+  (productCid, recordIndex) <- processWithRequests ProcessWithRequestArgs with
+    owner = farmer_fred
+    processor = processor_polly
+    productId
+    productCid
+    outputType = "roasted_coffee_beans"
+    outputUnit = "kg"
+    location = Location with name = "Processing Inc."; country = "UK"
+    recordIndex
+    now
+
+  (productCid, recordIndex) <- handover HandoverArgs with
+    oldHandler = processor_polly
+    newHandler = farmer_fred
+    productId
+    productCid
+    recordIndex
+    now
+
+  
+
+---------------------------------------------------
+---------------------------------------------------
+-- Traded Product with a Transportation Record
+-- "Ginger (Sample Data)"
+
+  (productId, recordIndex) <- init "sampledata:dried_ginger"
+
+  productCid <- createNewProduct CreateProductArgs with
+    producer = farmer_fred
+    productId
+    productType = "ginger"
+    description = "Ginger (Sample Data)"
+    now
+  
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 25.0; unit = "kg"
+    plotId = "fred_plot1"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 45.0; unit = "kg"
+    plotId = "fred_plot2"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 12.0; unit = "kg"
+    plotId = "fred_plot3"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 14.0; unit = "kg"
+    plotId = "fred_plot4"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 23.0; unit = "kg"
+    plotId = "fred_plot5"
+    now
+
+  (productCid, product) <- fetchProduct productCid farmer_fred 
+
+  (productCid, recordIndex) <- processWithRequests ProcessWithRequestArgs with
+    owner = farmer_fred
+    processor = processor_polly
+    productId
+    productCid
+    outputType = "dried_ginger"
+    outputUnit = "kg"
+    location = Location with name = "Processing Inc."; country = "UK"
+    recordIndex
+    now
+
+  (productCid, recordIndex) <- handover HandoverArgs with
+    oldHandler = processor_polly
+    newHandler = farmer_fred
+    productId
+    productCid
+    recordIndex
+    now
+
+  (productCid, recordIndex) <- sell SaleArgs with
+    seller = farmer_fred
+    buyer = buyer_barry
+    productId
+    productCid
+    price = 50.00
+    recordIndex
+    now
+
+  (productCid, recordIndex) <- transportWithRequests TransportWithRequestArgs with
+    owner = buyer_barry
+    transporter = transporter_tim
+    productId
+    productCid
+    startLocation = Location with name = "Wigan"; country = "UK"
+    endLocation = Location with name = "Athens"; country = "Greece"
+    recordIndex
+    now
+
+  (productCid, recordIndex) <- handover HandoverArgs with
+    oldHandler = transporter_tim
+    newHandler = buyer_barry
+    productId
+    productCid
+    recordIndex
+    now
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- Traded Split Product
+-- "Bananas (Sample Data)"
+
+  (productId, recordIndex) <- init "sampledata:bananas"
+
+  productCid <- createNewProduct CreateProductArgs with
+    producer = farmer_fred
+    productId
+    productType = "bananas"
+    description = "Bananas (Sample Data)"
+    now
+  
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 115.0; unit = "kg"
+    plotId = "fred_plot1"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 335.0; unit = "kg"
+    plotId = "fred_plot2"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 202.0; unit = "kg"
+    plotId = "fred_plot3"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 314.0; unit = "kg"
+    plotId = "fred_plot4"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 137.0; unit = "kg"
+    plotId = "fred_plot5"
+    now
+
+  (productCid, product) <- fetchProduct productCid farmer_fred
+
+  (productCidA, productCidB, recordIndex) <- split SplitArgs with
+    owner = farmer_fred
+    productId
+    productCid
+    recordIndex
+    description = product.description
+    now
+
+  (productCidA, productA) <- fetchProduct productCidA farmer_fred
+  (productCidB, productB) <- fetchProduct productCidB farmer_fred
+
+  (productCidA, recordIndex) <- sell SaleArgs with
+    seller = farmer_fred
+    buyer = buyer_barry
+    productId = productA.productId
+    productCid = productCidA
+    price = 100.00
+    recordIndex
+    now
+
+  (productCidB, recordIndex) <- sell SaleArgs with
+    seller = farmer_fred
+    buyer = buyer_bonzo
+    productId = productB.productId
+    productCid = productCidB
+    price = 100.00
+    recordIndex
+    now
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- Merged Processed Product
+-- "Sample (Sample Data)"
+
+  (productId, recordIndex) <- init "sampledata:sugar1"
+
+  productCid <- createNewProduct CreateProductArgs with
+    producer = farmer_fred
+    productId
+    productType = "sugar_cane"
+    description = "Sugar (Sample Data) (1)"
+    now
+  
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 115.0; unit = "kg"
+    plotId = "fred_plot1"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 335.0; unit = "kg"
+    plotId = "fred_plot2"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 202.0; unit = "kg"
+    plotId = "fred_plot3"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 314.0; unit = "kg"
+    plotId = "fred_plot4"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_fred
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 137.0; unit = "kg"
+    plotId = "fred_plot5"
+    now
+
+  (productCid, recordIndex) <- processWithRequests ProcessWithRequestArgs with
+    owner = farmer_fred
+    processor = processor_polly
+    productId
+    productCid
+    outputType = "sugar"
+    outputUnit = "kg"
+    location = Location with name = "Processing Inc."; country = "UK"
+    recordIndex
+    now
+
+  (productCid, recordIndex) <- handover HandoverArgs with
+    oldHandler = processor_polly
+    newHandler = farmer_fred
+    productId
+    productCid
+    recordIndex
+    now
+
+  (productCid1, recordIndex) <- sell SaleArgs with
+    seller = farmer_fred
+    buyer = buyer_barry
+    productId
+    productCid
+    price = 100.0
+    recordIndex
+    now
+
+  (productCid1, recordIndex) <- handover HandoverArgs with
+    oldHandler = farmer_fred
+    newHandler = buyer_barry
+    productId
+    productCid = productCid1
+    recordIndex
+    now
+
+  productId <- getText "sampledata:sugar2"
+
+  productCid <- createNewProduct CreateProductArgs with
+    producer = farmer_felicity
+    productId
+    productType = "sugar_cane"
+    description = "Sugar (Sample Data) (2)"
+    now
+  
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_felicity
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 115.0; unit = "kg"
+    plotId = "felicity_plot1"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_felicity
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 335.0; unit = "kg"
+    plotId = "felicity_plot2"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_felicity
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 202.0; unit = "kg"
+    plotId = "felicity_plot3"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_felicity
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 314.0; unit = "kg"
+    plotId = "felicity_plot4"
+    now
+
+  (productCid, recordIndex) <- addProductionRecord AddProductionRecordArgs with
+    productCid
+    producer = farmer_felicity
+    productId
+    recordIndex
+    location = Location with name = "Wigan"; country = "UK"
+    amount = Amount with quantity = 137.0; unit = "kg"
+    plotId = "felicity_plot5"
+    now
+
+  (productCid, recordIndex) <- processWithRequests ProcessWithRequestArgs with
+    owner = farmer_felicity
+    processor = processor_percy
+    productId
+    productCid
+    outputType = "sugar"
+    outputUnit = "kg"
+    location = Location with name = "The Processing People"; country = "UK"
+    recordIndex
+    now
+
+  (productCid, recordIndex) <- handover HandoverArgs with
+    oldHandler = processor_percy
+    newHandler = farmer_felicity
+    productId
+    productCid
+    recordIndex
+    now
+
+  (productCid2, recordIndex) <- sell SaleArgs with
+    seller = farmer_felicity
+    buyer = buyer_barry
+    productId
+    productCid
+    price = 100.0
+    recordIndex
+    now
+
+  (productCid2, recordIndex) <- handover HandoverArgs with
+    oldHandler = farmer_felicity
+    newHandler = buyer_barry
+    productId
+    productCid = productCid2
+    recordIndex
+    now
+
+  (productCid, recordIndex) <- merge MergeArgs with
+    owner = buyer_barry
+    productCidA = productCid1
+    productCidB = productCid2
+    recordIndex
+    description = "Sugar (Sample Data)"
+    now
+
+  (productCid, recordIndex) <- processWithRequests ProcessWithRequestArgs with
+    owner = buyer_barry
+    processor = admin_alex
+    productId
+    productCid
+    outputType = "sugar_cubes"
+    outputUnit = "kg"
+    location = Location with name = "Kootala Villa"; country = "UK"
+    recordIndex
+    now
+
+  (productCid, recordIndex) <- handover HandoverArgs with
+    oldHandler = admin_alex
+    newHandler = buyer_barry
+    productId
+    productCid
+    recordIndex
+    now
+
+  return ()

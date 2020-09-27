@@ -1,0 +1,22 @@
+module Product where
+
+import Records
+import Types
+
+
+
+---------------------------------
+-- PRODUCT
+
+template Product
+  with
+    owner : Party
+    handler : Party
+    productLabel : Text
+    productType : Text
+    amount : Amount
+    productionRecordId : ContractId ProductionRecord
+    processingRecordIds : [ContractId ProcessingRecord]
+    transportationRecordIds : [ContractId TransportationRecord]
+  where
+    signatory owner

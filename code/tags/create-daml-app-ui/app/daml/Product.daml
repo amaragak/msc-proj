@@ -1,0 +1,45 @@
+module Product where
+
+import Records
+import Types
+
+
+
+---------------------------------
+-- PRODUCT
+
+template Product
+  with
+    owner : Party
+    handler : Party
+    productLabel : Text
+    productType : Text
+    amount : Amount
+    productionRecordIds : [ContractId ProductionRecord]
+    processingRecordIds : [ContractId ProcessingRecord]
+    transportationRecordIds : [ContractId TransportationRecord]
+  where
+    signatory owner
+    controller owner can
+      RequestHandover : ContractId ProductHandoverRequest
+        with
+          newHandler : Party
+        do
+          create ProductHandoverRequest with
+            owner
+            newHandler
+            product = this
+
+
+template ProductHandoverRequest
+  with
+    owner : Party
+    newHandler : Party
+    product : Product
+  where
+    signatory owner
+    controller newHandler can
+      AcceptHandover : ContractId Product
+        do
+          create product with 
+            handler = newHandler

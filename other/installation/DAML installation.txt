@@ -1,0 +1,12 @@
+-----------------
+DAML installation
+-----------------
+
+Dependencies:
+ - Visual Studio Code.
+ - JDK 8 or greater
+
+Mac/Linux install:
+ - 'curl -sSL https://get.daml.com/ | sh'
+ - Add ~/.daml/bin to PATH if prompted
+ 

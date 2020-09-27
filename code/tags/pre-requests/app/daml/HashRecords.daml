@@ -1,0 +1,48 @@
+module HashRecords where
+
+template ProductionRecord
+  with
+    producer : Party
+    productOwner : Party
+    hash : Text
+  where
+    signatory producer
+    observer productOwner
+
+
+template ProcessingRecord
+  with
+    processor : Party
+    productOwner : Party
+    hash : Text
+  where
+    signatory processor
+    observer productOwner
+
+template TransportationRecord
+  with
+    transporter : Party
+    productOwner : Party
+    hash : Text
+  where
+    signatory transporter
+    observer productOwner
+
+template StorageRecord
+  with
+    storageProvider : Party
+    productOwner : Party
+    hash : Text
+  where
+    signatory storageProvider
+    observer productOwner
+
+template AggregationRecord
+  with
+    aggregator : Party
+    productOwner : Party
+    hash : Text
+  where
+    signatory aggregator
+    observer productOwner
+    

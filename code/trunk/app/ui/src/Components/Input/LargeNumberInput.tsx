@@ -1,0 +1,76 @@
+import React from "react";
+import NumberFormat from 'react-number-format';
+import { TextField } from "@material-ui/core";
+
+export interface LargeNumberInputProps {
+  label: string;
+  onChange: (value: string) => void;
+  suffix?: string;
+  prefix?: string;
+  error?: boolean;
+  value?: string;
+  disabled?: boolean;
+  twoDecimalPoints?: boolean;
+  errorMessage?: string;
+}
+
+interface NumberFormatCustomProps {
+  inputRef: (instance: NumberFormat | null) => void;
+  onChange: (event: { target: { name: string; value: string } }) => void;
+  name: string;
+  suffix?: string;
+  prefix?: string;
+  twoDecimalPoints?: boolean;
+}
+
+class NumberFormatCustom extends React.Component<NumberFormatCustomProps, {}> {
+  render() {
+    const { inputRef, onChange, suffix, name, prefix, twoDecimalPoints, ...other } = this.props;
+    return (
+      <NumberFormat
+        {...other}
+        getInputRef={inputRef}
+        onValueChange={(values) => {
+          onChange({
+            target: {
+              name: name,
+              value: values.value,
+            },
+          });
+        }}
+        thousandSeparator
+        isNumericString
+        suffix={suffix}
+        prefix={prefix}
+        allowNegative={false}
+        fixedDecimalScale={twoDecimalPoints}
+        decimalScale={twoDecimalPoints ? 2 : undefined}
+      />
+    );
+  }
+}
+
+export class LargeNumberInput extends React.Component<LargeNumberInputProps, {}> {
+  render() {
+    const { suffix, prefix, onChange, error, label, disabled, value, twoDecimalPoints } = this.props;
+    return (
+      <TextField
+        fullWidth
+        error={error}
+        label={label}
+        onChange={(e) => onChange(e.target.value)}
+        name="numberformat"
+        id="formatted-numberformat-input"
+        autoComplete='off'
+        InputProps={{
+          inputComponent: NumberFormatCustom as any,
+          inputProps: { suffix, prefix, twoDecimalPoints },
+          autoComplete: 'off'
+        }}
+        disabled={disabled}
+        value={value}
+        helperText={this.props.errorMessage}
+      />
+    );
+  }
+}

@@ -1,0 +1,240 @@
+daml 1.2
+
+module Record where
+
+import Types
+import DA.Optional
+
+type RecordCid = ContractId Record
+type RecordKey = (Party, Text, Text) -- (actor, productId, recordId)
+
+replaceProductId: Text -> RecordKey  -> RecordKey
+replaceProductId productId k  = (k._1, productId, k._3)
+
+data RecordType
+  = UNDEFINED
+  | PRODUCTION
+  | PROCESSING_START
+  | PROCESSING_END
+  | PROCESSING
+  | TRANSPORTATION
+  | TRANSPORTATION_START
+  | TRANSPORTATION_END
+  | STORAGE
+  | HANDOVER
+  | SALE
+  | MERGE
+  | SPLIT
+    deriving (Eq, Show)
+
+data RecordDetails 
+  = ProductionRecordDetailsTag ProductionRecordDetails
+  | ProcessingStartRecordDetailsTag ProcessingStartRecordDetails
+  | ProcessingEndRecordDetailsTag ProcessingEndRecordDetails
+  | ProcessingRecordDetailsTag ProcessingRecordDetails
+  | TransportationRecordDetailsTag TransportationRecordDetails
+  | TransportationStartRecordDetailsTag TransportationStartRecordDetails
+  | TransportationEndRecordDetailsTag TransportationEndRecordDetails
+  | StorageRecordDetailsTag StorageRecordDetails
+  | HandoverRecordDetailsTag HandoverRecordDetails
+  | SaleRecordDetailsTag SaleRecordDetails
+  | MergeRecordDetailsTag MergeRecordDetails
+  | SplitRecordDetailsTag SplitRecordDetails
+  deriving (Eq, Show)
+
+data ProductionRecordDetails = ProductionRecordDetails
+  with
+    product : ProductInfo
+    location : Location
+    plotId : Text
+    time : Time
+      deriving (Eq, Show)
+
+
+data ProcessingStartRecordDetails = ProcessingStartRecordDetails
+  with
+    processId : Text
+    inputProduct : ProductInfo
+    startTime : Time
+    location : Location
+      deriving (Eq, Show)
+
+data ProcessingEndRecordDetails = ProcessingEndRecordDetails
+  with
+    processId : Text
+    outputProduct : ProductInfo
+    endTime : Time
+    location : Location
+      deriving (Eq, Show)
+
+data ProcessingRecordDetails = ProcessingRecordDetails
+  with
+    inputProduct : ProductInfo
+    outputProduct : ProductInfo
+    startTime : Time
+    endTime : Time
+    location : Location
+      deriving (Eq, Show)
+      
+data TransportationRecordDetails = TransportationRecordDetails
+  with
+    product : ProductInfo
+    startLocation : Location
+    endLocation : Location
+    startTime : Time
+    endTime : Time
+      deriving (Eq, Show)
+
+data TransportationStartRecordDetails = TransportationStartRecordDetails
+  with
+    transportId : Text
+    productForTransport : ProductInfo
+    startLocation : Location
+    startTime : Time
+      deriving (Eq, Show)
+
+data TransportationEndRecordDetails = TransportationEndRecordDetails
+  with
+    transportId : Text
+    productForTransport : ProductInfo
+    endLocation : Location
+    endTime : Time
+      deriving (Eq, Show)
+
+data SaleRecordDetails = SaleRecordDetails
+  with
+    product : ProductInfo
+    seller : Party
+    buyer : Party
+    price : Decimal
+    currency : Text
+    time : Time
+      deriving (Eq, Show)
+
+data StorageRecordDetails = StorageRecordDetails
+  with
+    product : ProductInfo
+    location : Location
+    startTime : Time
+    endTime : Time
+      deriving (Eq, Show)
+
+data HandoverRecordDetails = HandoverRecordDetails
+  with
+    product : ProductInfo
+    oldHandler : Party
+    newHandler : Party
+    time : Time
+      deriving (Eq, Show)
+  
+data MergeRecordDetails = MergeRecordDetails
+  with
+    oldProductA : ProductInfo
+    oldDescriptionA : Text
+    oldProductB : ProductInfo
+    oldDescriptionB : Text
+    newProduct : ProductInfo
+    newDescription : Text
+    time : Time
+      deriving (Eq, Show)
+
+data SplitRecordDetails = SplitRecordDetails
+  with
+    oldProduct : ProductInfo
+    oldDescription : Text
+    newProductA : ProductInfo
+    newDescriptionA : Text
+    newProductB : ProductInfo
+    newDescriptionB : Text
+    time : Time
+      deriving (Eq, Show)
+
+template Record
+  with
+    recordType : RecordType
+    productId : Text
+    recordId : Text
+    completionTime : Time
+    details : RecordDetails
+    actor : Party
+    productOwner : Party
+    productCurrentHandler : Party
+    requestObserver : Optional Party
+    offerObserver : Optional Party
+  where
+    signatory actor
+    key (actor, productId, recordId) : RecordKey
+    maintainer key._1
+
+    controller productCurrentHandler can
+      ListNewHandlerOnRecord : RecordCid
+        with
+          newHandler : Party
+        do
+          create this with productCurrentHandler = newHandler
+
+      ReturnHandlerToOwnerOnRecord : RecordCid
+        do
+          create this with productCurrentHandler = productOwner
+
+    controller productOwner can
+      SetRequestObserverOnRecord: RecordCid
+        with
+          newRequestObserver : Party
+        do
+          assert (isNone requestObserver)
+          create this with requestObserver = Some newRequestObserver
+
+      RemoveRequestObserverFromRecord: RecordCid
+        do
+          assert (isSome requestObserver)
+          create this with requestObserver = None
+
+      SetOfferObserverOnRecord: RecordCid
+        with
+          newOfferObserver : Party
+        do
+          assert (isNone offerObserver)
+          create this with offerObserver = Some newOfferObserver
+
+      RemoveOfferObserverFromRecord: RecordCid
+        do
+          assert (isSome offerObserver)
+          create this with offerObserver = None
+
+      nonconsuming OnProductSplit : RecordCid
+        with
+          newProductId : Text
+        do
+          create this with
+            productId = newProductId
+
+      OnProductMerge : RecordCid
+        with
+          newProductId : Text
+        do
+          create this with
+            productId = newProductId
+            
+    controller requestObserver can
+      AcceptRecordHandover : RecordCid
+        do
+          create this with 
+            productCurrentHandler = fromSome requestObserver
+            requestObserver = None
+
+      DeclineRecordHandover : RecordCid
+        do
+          create this with requestObserver = None
+
+    controller offerObserver can
+      AcceptRecordSale : RecordCid
+        do
+          create this with 
+            productOwner = fromSome offerObserver
+            offerObserver = None
+
+      DeclineRecordSale : RecordCid
+        do
+          create this with offerObserver = None
+    

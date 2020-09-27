@@ -1,0 +1,524 @@
+daml 1.2
+module SampleData_dev where
+
+import Daml.Script
+import Product
+import Record
+import Types
+import DA.Time
+
+setup : Script ()
+setup = do
+  now <- getTime
+  admin_alice <- allocatePartyWithHint "Admin Alice" $ PartyIdHint with partyIdHint = "Admin Alice"
+  buyer_barry <- allocatePartyWithHint "Buyer Barry" $ PartyIdHint with partyIdHint = "Buyer Barry"
+  farmer_fred <- allocatePartyWithHint "Farmer Fred" $ PartyIdHint with partyIdHint = "Farmer Fred"
+  processor_polly <- allocatePartyWithHint "Polly Processor" $ PartyIdHint with partyIdHint = "Processor Polly"
+  transporter_tim <- allocatePartyWithHint "Transporter Tim" $ PartyIdHint with partyIdHint = "Transporter Tim"
+
+  starbucksCid <- submit admin_alice do
+    createCmd Product with
+      state = IDLE
+      version = 1
+      lastUpdated = now
+      productId = "productId:starbucks"
+      isProcessed = False
+      description = "Coffee for Starbucks"
+      owner = admin_alice
+      handler = admin_alice
+      productInfo = ProductInfo with
+        labels = []
+        typeId = "coffee_beans"
+        amount = Amount with
+          quantity = 0.0
+          unit = "kg"
+      recordKeys = []
+      lastRecordType = UNDEFINED
+      requestObserver = None
+      offerObserver = None
+      orderCid = None
+
+  (starbucksCid, recordCid) <- submit admin_alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "recordId:starbucks1"
+      recordPlotId = "alice_plot1"
+      recordProducer = admin_alice
+      recordTime = now
+      recordLabel = "label:starbucks_coffee_beans_1"
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (starbucksCid, recordCid) <- submit admin_alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "recordId:starbucks2"
+      recordPlotId = "alice_plot2"
+      recordProducer = admin_alice
+      recordTime = addRelTime now (hours 1)
+      recordLabel = "label:starbucks_coffee_beans_2"
+      recordLocation = Location with
+        name = "Manchester"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 2.5
+        unit = "kg"
+
+  (starbucksCid, recordCid) <- submit admin_alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "recordId:starbucks3"
+      recordPlotId = "alice_plot3"
+      recordProducer = admin_alice
+      recordLabel = "label:starbucks_coffee_beans_3"
+      recordTime = addRelTime now (hours 2)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (starbucksCid, recordCid) <- submit admin_alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "recordId:starbucks4"
+      recordPlotId = "alice_plot4"
+      recordProducer = admin_alice
+      recordTime = addRelTime now (hours 3)
+      recordLabel = "label:starbucks_coffee_beans_4"
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 9.0
+        unit = "kg"
+
+  (starbucksCid, recordCid) <- submit admin_alice do
+    exerciseCmd starbucksCid AddProductionRecordToProduct with
+      recordId = "recordId:starbucks5"
+      recordPlotId = "alice_plot5"
+      recordProducer = admin_alice
+      recordTime = addRelTime now (hours 4)
+      recordLabel = "label:starbucks_coffee_beans_5"
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 2.0
+        unit = "kg"
+
+  (starbucksCid, startRecordCid, endRecordCid) <- submit admin_alice do
+    exerciseCmd starbucksCid AddProcessingRecordToProduct with
+      recordId = "recordId:starbucks6"
+      recordProcessor = admin_alice
+      recordStartTime = addRelTime now (hours 5)
+      recordEndTime = addRelTime now (hours 6)
+      recordLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      recordOutputAmount = Amount with
+        quantity = 17.0
+        unit = "kg"
+      recordOutputType = "roasted_coffee_beans"
+      recordOutputLabel = "label:starbucks_roasted_coffee_beans"
+
+  (starbucksCid, startRecordCid, endRecordCid) <- submit admin_alice do
+    exerciseCmd starbucksCid AddTransportationRecordToProduct with
+      recordId = "recordId:starbucks7"
+      recordTransporter = admin_alice
+      recordStartTime = addRelTime now (hours 7)
+      recordEndTime = addRelTime now (hours 8)
+      recordStartLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      recordEndLocation = Location with
+        name = "Athens"
+        country = "Greece"
+
+
+  ------
+
+  nescafeCid <- submit admin_alice do
+    createCmd Product with 
+      state = IDLE
+      version = 1
+      lastUpdated = now
+      productId = "productId:nescafe"
+      isProcessed = False
+      description = "Coffee for Nescafe"
+      owner = admin_alice
+      handler = admin_alice
+      productInfo = ProductInfo with
+        labels = []
+        typeId = "coffee_beans"
+        amount = Amount with
+          quantity = 0.0
+          unit = "kg"
+      recordKeys = []
+      lastRecordType = UNDEFINED
+      requestObserver = None
+      orderCid = None
+      offerObserver = None
+
+  (nescafeCid, recordCid) <- submit admin_alice do
+    exerciseCmd nescafeCid AddProductionRecordToProduct with
+      recordId = "recordId:nescafe1"
+      recordPlotId = "alice_plot2"
+      recordLabel = "label:nescafe_coffee_beans_5"
+      recordProducer = admin_alice
+      recordTime = addRelTime now (hours 1)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 1.0
+        unit = "kg"
+
+  (nescafeCid, startRecordCid, endRecordCid) <- submit admin_alice do
+    exerciseCmd nescafeCid AddProcessingRecordToProduct with
+      recordId = "recordId:nescafe2"
+      recordProcessor = admin_alice
+      recordStartTime = addRelTime now (hours 5)
+      recordEndTime = addRelTime now (hours 6)
+      recordLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      recordOutputAmount = Amount with
+        quantity = 1.0
+        unit = "kg"
+      recordOutputType = "roasted_coffee_beans"
+      recordOutputLabel = "label:nescafe_roasted_coffee_beans"
+
+  ------
+
+  (mergedCid, recordCid, oldRecordCids) <- submit admin_alice do
+    exerciseCmd nescafeCid MergeProduct with
+      recordId = "recordId:merge"
+      recordTime = addRelTime now (days 1)
+      otherProductKey = (admin_alice, "productId:starbucks")
+      newDescription = "Coffee beans for starbucks and nescafe"
+
+  (mergedCid, merged) <- submit admin_alice do exerciseCmd mergedCid Fetch
+
+  (splitCidA, recordCidA, splitCidB, recordCidB, oldRecordCids) <- submit admin_alice do
+    exerciseCmd mergedCid SplitProduct with
+      quantityA = merged.productInfo.amount.quantity - 0.5
+      quantityB = 0.5
+      recordTime = addRelTime now (days 2)
+      recordId = "recordId:split"
+      productIdB = "productId:splitB"
+      descriptionA = "Coffee - Split A"
+      descriptionB = "Coffee - Split B"
+  ------
+
+  orangesCid <- submit farmer_fred do
+    createCmd Product with
+      state = IDLE
+      version = 1
+      lastUpdated = now
+      productId = "productId:oranges"
+      isProcessed = False
+      description = "Orange Juice (Batch #7)"
+      owner = farmer_fred
+      handler = farmer_fred
+      productInfo = ProductInfo with
+        labels = []
+        typeId = "oranges"
+        amount = Amount with
+          quantity = 0.0
+          unit = "kg"
+      recordKeys = []
+      lastRecordType = UNDEFINED
+      requestObserver = None
+      orderCid = None
+      offerObserver = None
+
+  (orangesCid, recordCid) <- submit farmer_fred do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "recordId:oranges1"
+      recordPlotId = "fred_plot1"
+      recordProducer = farmer_fred
+      recordLabel = "label:oranges_1"
+      recordTime = addRelTime now (hours 1)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (orangesCid, recordCid) <- submit farmer_fred do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "recordId:oranges2"
+      recordPlotId = "fred_plot2"
+      recordLabel = "label:oranges_2"
+      recordProducer = farmer_fred
+      recordTime = addRelTime now (hours 2)
+      recordLocation = Location with
+        name = "Manchester"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 2.5
+        unit = "kg"
+
+  (orangesCid, recordCid) <- submit farmer_fred do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "recordId:oranges3"
+      recordPlotId = "fred_plot3"
+      recordProducer = farmer_fred
+      recordLabel = "label:oranges_3"
+      recordTime = addRelTime now (hours 3)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (orangesCid, recordCid) <- submit farmer_fred do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "recordId:oranges4"
+      recordPlotId = "fred_plot4"
+      recordProducer = farmer_fred
+      recordLabel = "label:oranges_4"
+      recordTime = addRelTime now (hours 4)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 9.0
+        unit = "kg"
+
+  (orangesCid, recordCid) <- submit farmer_fred do
+    exerciseCmd orangesCid AddProductionRecordToProduct with
+      recordId = "recordId:oranges5"
+      recordPlotId = "fred_plot5"
+      recordProducer = farmer_fred
+      recordLabel = "label:oranges_5"
+      recordTime = addRelTime now (hours 5)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 3.5
+        unit = "kg"
+
+  (orangesCid, handoverRequestCid, oldRecordCids) <- submit farmer_fred do
+    exerciseCmd orangesCid MakeHandoverRequest with
+      newHandler = processor_polly
+
+  (orangesCid, recordCid, oldRecordCids) <- submit processor_polly do
+    exerciseCmd handoverRequestCid AcceptHandoverRequest with
+      recordId = "recordId:oranges6"
+      recordTime = addRelTime now (hours 6)
+
+  (orangesCid, startRecordCid, endRecordCid) <- submit processor_polly do
+    exerciseCmd orangesCid AddProcessingRecordToProduct with
+      recordId = "recordId:oranges7"
+      recordProcessor = processor_polly
+      recordStartTime = addRelTime now (hours 7)
+      recordEndTime = addRelTime now (hours 8)
+      recordLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      recordOutputAmount = Amount with
+        quantity = 20.0
+        unit = "litres"
+      recordOutputType = "orange_juice"
+      recordOutputLabel = "label:orangejuice"
+
+  (orangesCid, handoverRequestCid, oldRecordCids) <- submit processor_polly do
+    exerciseCmd orangesCid MakeHandoverRequest with
+      newHandler = transporter_tim
+
+  (orangesCid, recordCid, oldRecordCids) <- submit transporter_tim do
+    exerciseCmd handoverRequestCid AcceptHandoverRequest with
+      recordId = "recordId:oranges8"
+      recordTime = addRelTime now (hours 9) 
+
+  (orangesCid, startRecordCid, endRecordCid) <- submit transporter_tim do
+    exerciseCmd orangesCid AddTransportationRecordToProduct with
+      recordId = "recordId:oranges9"
+      recordTransporter = transporter_tim
+      recordStartTime = addRelTime now (hours 10)
+      recordEndTime = addRelTime now (hours 11)
+      recordStartLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      recordEndLocation = Location with
+        name = "Athens"
+        country = "Greece"
+
+  -----------------
+  
+
+  bananasCid <- submit farmer_fred do
+    createCmd Product with
+      state = IDLE
+      version = 1
+      lastUpdated = now
+      productId = "productId:bananas"
+      isProcessed = False
+      description = "Sliced Bananas (Batch #1)"
+      owner = farmer_fred
+      handler = farmer_fred
+      productInfo = ProductInfo with
+        labels = []
+        typeId = "bananas"
+        amount = Amount with
+          quantity = 0.0
+          unit = "kg"
+      recordKeys = []
+      lastRecordType = UNDEFINED
+      requestObserver = None
+      orderCid = None
+      offerObserver = None
+
+  (bananasCid, recordCid) <- submit farmer_fred do
+    exerciseCmd bananasCid AddProductionRecordToProduct with
+      recordId = "recordId:bananas1"
+      recordPlotId = "fred_plot1"
+      recordProducer = farmer_fred
+      recordLabel = "label:bananas1"
+      recordTime = addRelTime now (hours 1)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (bananasCid, recordCid) <- submit farmer_fred do
+    exerciseCmd bananasCid AddProductionRecordToProduct with
+      recordId = "recordId:bananas2"
+      recordPlotId = "fred_plot2"
+      recordLabel = "label:bananas2"
+      recordProducer = farmer_fred
+      recordTime = addRelTime now (hours 2)
+      recordLocation = Location with
+        name = "Manchester"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 2.5
+        unit = "kg"
+
+  (bananasCid, recordCid) <- submit farmer_fred do
+    exerciseCmd bananasCid AddProductionRecordToProduct with
+      recordId = "recordId:bananas3"
+      recordPlotId = "fred_plot3"
+      recordProducer = farmer_fred
+      recordLabel = "label:bananas3"
+      recordTime = addRelTime now (hours 3)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 5.0
+        unit = "kg"
+
+  (bananasCid, recordCid) <- submit farmer_fred do
+    exerciseCmd bananasCid AddProductionRecordToProduct with
+      recordId = "recordId:bananas4"
+      recordPlotId = "fred_plot4"
+      recordProducer = farmer_fred
+      recordLabel = "label:bananas4"
+      recordTime = addRelTime now (hours 4)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 9.0
+        unit = "kg"
+
+  (bananasCid, recordCid) <- submit farmer_fred do
+    exerciseCmd bananasCid AddProductionRecordToProduct with
+      recordId = "recordId:bananas5"
+      recordPlotId = "fred_plot5"
+      recordProducer = farmer_fred
+      recordLabel = "label:bananas5"
+      recordTime = addRelTime now (hours 5)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = 3.5
+        unit = "kg"
+
+  (bananasCid, requestCid, oldRecordCids) <- submit farmer_fred do
+    exerciseCmd bananasCid MakeProcessingRequest with
+      processor = processor_polly
+      outputType = "sliced_bananas"
+      location = Location with
+        name = "process land"
+        country = "iceland"
+
+  (bananasCid, orderCid, recordCid, oldRecordCids) <- submit processor_polly do
+    exerciseCmd requestCid AcceptProcessingRequest with
+      recordTime = addRelTime now (hours 6)
+      recordId = "recordId:bananas6"
+      processId = "processId:bananas"
+
+  (bananasCid, orderCid, recordCid) <- submit processor_polly do
+    exerciseCmd orderCid StartProcessingOrder with
+      recordTime = addRelTime now (hours 7)
+      recordId = "recordId:bananas7"
+
+  (bananasCid, recordCid) <- submit processor_polly do
+    exerciseCmd orderCid CompleteProcessingOrder with
+      recordId = "recordId:bananas8"
+      recordTime = addRelTime now (hours 8)
+      recordOutputProduct = ProductInfo with
+        typeId = "sliced_bananas"
+        labels = ["label:slicedbananas"]
+        amount = Amount with
+          quantity = 20.0
+          unit = "kg"
+
+  (bananasCid, requestCid, oldRecordCids) <- submit farmer_fred do
+    exerciseCmd bananasCid MakeSaleRequest with
+      buyer = buyer_barry
+      price = 20.00
+      currency = "£"
+
+  (bananasCid, recordCid, oldRecordCids) <- submit buyer_barry do
+    exerciseCmd requestCid AcceptSaleRequest with
+      recordTime = addRelTime now (hours 9)
+      recordId = "recordId:bananas9"
+
+  (bananasCid, requestCid, oldRecordCids) <- submit buyer_barry do
+    exerciseCmd bananasCid MakeTransportationRequest with
+      transporter = transporter_tim
+      startLocation = Location with
+        name = "Bolton"
+        country = "UK"
+      endLocation = Location with
+        name = "Athens"
+        country = "Greece"
+
+  (bananasCid, orderCid, recordCid, oldRecordCids) <- submit transporter_tim do
+    exerciseCmd requestCid AcceptTransportationRequest with
+      recordTime = addRelTime now (hours 10)
+      recordId = "recordId:bananas10"
+      transportId = "transportId:bananas"
+
+  (bananasCid, orderCid, recordCid) <- submit transporter_tim do
+    exerciseCmd orderCid StartTransportationOrder with
+      recordTime = addRelTime now (hours 11)
+      recordId = "recordId:bananas11"
+
+  (bananasCid, recordCid) <- submit transporter_tim do
+    exerciseCmd orderCid CompleteTransportationOrder with
+      recordId = "recordId:bananas12"
+      recordTime = addRelTime now (hours 12)
+
+  (bananasCid, handoverRequestCid, oldRecordCids) <- submit transporter_tim do
+    exerciseCmd bananasCid MakeHandoverRequest with
+      newHandler = buyer_barry
+
+  (bananasCid, recordCid, oldRecordCids) <- submit buyer_barry do
+    exerciseCmd handoverRequestCid AcceptHandoverRequest with
+      recordId = "recordId:bananas13"
+      recordTime = addRelTime now (hours 13)
+
+  pure ()

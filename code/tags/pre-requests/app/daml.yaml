@@ -1,0 +1,16 @@
+sdk-version: 1.2.0
+name: app
+source: daml
+parties:
+  - Alice
+  - Bob
+version: 0.0.1
+init-script: Main:setup
+start-navigator: false
+sandbox-options:
+  - --ledgerid=app
+  - -w
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script

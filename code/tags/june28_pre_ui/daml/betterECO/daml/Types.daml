@@ -1,0 +1,23 @@
+ module Types where
+ 
+ 
+
+---------------------------------
+-- AMOUNT
+ 
+data Amount = Amount
+ with
+   quantity : Decimal
+   unit : Text
+ deriving (Eq, Show)
+ 
+
+
+---------------------------------
+-- EVENT
+
+data Event = Event
+ with
+   time : Time
+   location : Text
+ deriving (Eq, Show)

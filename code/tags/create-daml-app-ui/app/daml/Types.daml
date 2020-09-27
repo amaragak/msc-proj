@@ -1,0 +1,59 @@
+ module Types where
+ 
+ 
+
+---------------------------------
+-- AMOUNT
+ 
+data Amount = Amount
+ with
+   quantity : Decimal
+   unit : Text
+ deriving (Eq, Show)
+ 
+
+
+---------------------------------
+-- PRODUCTINFO
+ 
+data ProductInfo = ProductInfo
+ with
+   typeId : Text
+   label : Text
+   amount: Amount
+ deriving (Eq, Show)
+ 
+
+
+---------------------------------
+-- EVENT
+
+data Event = Event
+  with
+    time : Time
+    location : Text
+ deriving (Eq, Show)
+
+
+
+-----------------------------
+-- PERSONNAME
+
+data PersonName = PersonName
+  with
+    firstname : Text
+    lastname : Text
+    title : Text
+  deriving (Eq, Show)
+ 
+
+
+ ----------------------------
+ -- FILEREFERENCE
+
+data FileReference = FileReference
+  with
+    url : Text
+    hash : Text
+    name : Text
+  deriving (Eq, Show)

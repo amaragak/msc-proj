@@ -1,0 +1,18 @@
+--------
+Articles
+--------
+
+Preliminary Steps Towards Modeling Blockchain Oriented Software
+https://hal.inria.fr/hal-01831046/document
+
+A Model-driven Approach for the Description of Blockchain Business Networks
+https://core.ac.uk/download/pdf/143481277.pdf
+
+An Agile Software Engineering Method to Design Blockchain Applications
+https://arxiv.org/pdf/1809.09596.pdf
+
+How we built a distributed application for supply chain visibility using DAML in 4 weeks
+https://daml.com/daml-driven/how-we-built-a-distributed-application-for-supply-chain-visibility-using-daml-in-4-weeks/
+
+Smart Contracts as Authorized Production Rules
+https://dl.acm.org/doi/pdf/10.1145/3354166.3354179

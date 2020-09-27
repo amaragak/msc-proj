@@ -1,0 +1,740 @@
+module TestScenarios where
+
+import Product
+import Record
+import DA.Time
+import TestHelpers
+import DA.Optional
+import Types
+
+
+
+--------------------------------------------------------------------
+-- ADDING RECORDS IMMEDIATELY
+
+test_AddProductionRecordToProduct = scenario do
+  producer <- getParty "producer"
+  productCid <- createProductWithAProductionRecord producer
+  before <- submit producer do fetch productCid
+  let label = "label:test_AddProductionRecordToProduct"
+  let recordId = "recordId:test_AddProductionRecordToProduct"
+  let recordKey = (producer, before.productId, recordId)
+  (productCid, recordCid) <- addProductionRecord AddProductionRecordArgs with
+    producer
+    productCid
+    recordId
+    time = (addRelTime before.lastUpdated (hours 1))
+    quantity = 2.5
+    label
+  record <- submit producer do fetch recordCid
+  after <- submit producer do fetch productCid
+
+  assert (after.recordKeys == before.recordKeys ++ [recordKey])
+  assert ((label `elem` after.productInfo.labels) && (label `notElem` before.productInfo.labels))
+  assert ((recordKey `elem` after.recordKeys) && (recordKey `notElem` before.recordKeys))
+  assert (after.productInfo.amount.quantity == (getQuantity record.details) + (before.productInfo.amount.quantity))
+  assert (after.lastUpdated == record.completionTime)
+  assert (after.lastRecordType == PRODUCTION)
+  assert (after.version == before.version + 1)
+  assert (isNone after.orderCid)
+  assert (isNone after.requestObserver)
+  assert (isNone after.offerObserver)
+  assert (after.state == IDLE)
+
+  return ()
+
+
+
+test_AddProcessingRecordToProduct = scenario do
+  producer <- getParty "producer"
+  productCid <- createProductWithAProductionRecord producer
+  before <- submit producer do fetch productCid
+  let label = "label:test_AddProcessingRecordToProduct"
+  let recordId = "recordId:test_AddProcessingRecordToProduct"
+  (productCid, startRecordCid, endRecordCid) <- addProcessingRecord AddProcessingRecordArgs with
+    processor = producer
+    productCid
+    recordId
+    time = (addRelTime before.lastUpdated (hours 1))
+    quantity = 5.0
+    label
+  endRecord <- submit producer do fetch endRecordCid
+  after <- submit producer do fetch productCid
+
+  let startId = mconcat [recordId, "_start"]
+  let endId = mconcat [recordId, "_end"]
+  let startKey = (producer, before.productId, startId)
+  let endKey = (producer, after.productId, endId)
+
+  assert (after.recordKeys == before.recordKeys ++ [startKey, endKey])
+  assert ((label `elem` after.productInfo.labels) && (label `notElem` before.productInfo.labels))
+  assert ((startKey `elem` after.recordKeys) && (startKey `notElem` before.recordKeys))
+  assert ((endKey `elem` after.recordKeys) && (endKey `notElem` before.recordKeys))
+  assert (after.productInfo.amount.quantity == (getQuantity endRecord.details))
+  assert (after.lastUpdated == endRecord.completionTime)
+  assert (after.lastRecordType == PROCESSING_END)
+  assert (after.version == before.version + 1)
+  assert (isNone after.orderCid)
+  assert (isNone after.requestObserver)
+  assert (isNone after.offerObserver)
+  assert (after.state == IDLE)
+
+  return ()
+
+
+
+test_AddTransportationRecordToProduct = scenario do
+  producer <- getParty "producer"
+  productCid <- createProductWithAProductionRecord producer
+  before <- submit producer do fetch productCid
+  let recordId = "recordId:test_AddTransportationRecordToProduct"
+  (productCid, startRecordCid, endRecordCid) <- addTransportationRecord AddTransportationRecordArgs with
+    transporter = producer
+    productCid
+    recordId
+    time = (addRelTime before.lastUpdated (hours 1))
+  endRecord <- submit producer do fetch endRecordCid
+  after <- submit producer do fetch productCid
+
+  let startId = mconcat [recordId, "_start"]
+  let endId = mconcat [recordId, "_end"]
+  let startKey = (producer, before.productId, startId)
+  let endKey = (producer, after.productId, endId)
+
+  assert (after.recordKeys == before.recordKeys ++ [startKey, endKey])
+  assert ((length after.recordKeys) == (length before.recordKeys) + 2)
+  assert ((startKey `elem` after.recordKeys) && (startKey `notElem` before.recordKeys))
+  assert ((endKey `elem` after.recordKeys) && (endKey `notElem` before.recordKeys))
+  assert (after.lastUpdated == endRecord.completionTime)
+  assert (after.lastRecordType == TRANSPORTATION_END)
+  assert (after.version == before.version + 1)
+  assert (isNone after.orderCid)
+  assert (isNone after.requestObserver)
+  assert (isNone after.offerObserver)
+  assert (after.state == IDLE)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  return ()
+
+
+
+--------------------------------------------------------------------
+-- PROCESSING REQUEST WORKFLOW
+
+test_MakeProcessingRequest = scenario do
+  producer <- getParty "producer"
+  processor <- getParty "processor"
+  productCid <- createProductWithAProductionRecord producer
+  before <- submit producer do fetch productCid
+  (productCid, requestCid, recordCids) <- makeProcessingRequest MakeRequestArgs with
+    owner = producer
+    productCid
+    otherParty = processor
+  after <- submit producer do fetch productCid
+
+  assert (after.state == PROCESSING_REQUESTED)
+  assert (fromSome (getProcessingRequestCid (fromSome after.orderCid)) == requestCid)
+  assert (fromSome after.requestObserver == processor)
+  assert (isNone after.offerObserver)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  processorFetch <- submit processor do fetch productCid
+  records <- forA recordCids $ \recordCid -> submit processor do fetch recordCid
+  request <- submit processor do fetch requestCid
+
+  return ()
+  
+
+
+test_DeclineProcessingRequest = scenario do
+  producer <- getParty "producer"
+  processor <- getParty "processor"
+  (productCid, requestCid) <- createProductWithAProcessingRequest producer processor
+  before <- submit processor do fetch productCid
+  (productCid, recordCids) <- submit processor do
+    exercise requestCid DeclineProcessingRequest
+  after <- submit producer do fetch productCid
+
+  assert (before.owner == after.owner)
+  assert (after.handler == producer)
+  assert ((isNone after.requestObserver) && (isSome before.requestObserver))
+  assert (after.state == IDLE)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit producer do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.requestObserver)
+    assert (record.productCurrentHandler == producer)
+    return ()
+
+
+
+test_WithdrawProcessingRequest = scenario do
+  producer <- getParty "producer"
+  processor <- getParty "processor"
+  (productCid, requestCid) <- createProductWithAProcessingRequest producer processor
+  before <- submit processor do fetch productCid
+  (productCid, recordCids) <- submit producer do
+    exercise requestCid WithdrawProcessingRequest
+  after <- submit producer do fetch productCid
+
+  assert (before.owner == after.owner)
+  assert (after.handler == producer)
+  assert ((isNone after.requestObserver) && (isSome before.requestObserver))
+  assert (after.state == IDLE)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys)
+
+  records <- forA recordCids $ \recordCid -> submit producer do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.requestObserver)
+    assert (record.productCurrentHandler == producer)
+    return ()
+
+
+
+test_AcceptProcessingRequest = scenario do
+  producer <- getParty "producer"
+  processor <- getParty "processor"
+  (productCid, requestCid) <- createProductWithAProcessingRequest producer processor
+  before <- submit processor do fetch productCid
+  let recordId = "recordId:test_AcceptProcessingRequest"
+  let recordKey = (producer, before.productId, recordId)
+  (productCid, orderCid, recordCid, recordCids) <- submit processor do
+    exercise requestCid AcceptProcessingRequest with
+      recordId
+      processId = "processId:test_AcceptProcessingRequest"
+      recordTime = addRelTime before.lastUpdated (hours 1)
+  after <- submit processor do fetch productCid
+  record <- submit processor do fetch recordCid
+
+  assert ((after.handler == processor) && (before.handler == producer))
+  assert ((isNone after.requestObserver) && (isSome before.requestObserver))
+  assert (record.completionTime == after.lastUpdated)
+  assert (after.lastRecordType == HANDOVER)
+  assert (after.state == PROCESSING_ACCEPTED)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys ++ [recordKey])
+  assert ((recordKey `elem` after.recordKeys) && (recordKey `notElem` before.recordKeys))
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit processor do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.requestObserver)
+    assert (record.productCurrentHandler == processor)
+    return ()
+
+  return ()
+
+
+
+test_StartProcessingOrder = scenario do
+  producer <- getParty "producer"
+  processor <- getParty "processor"
+  (productCid, orderCid) <- createProductWithANewProcessingOrder producer processor
+  before <- submit processor do fetch productCid
+  let recordId = "recordId:test_AcceptProcessingRequest"
+  let recordKey = (processor, before.productId, recordId)
+  (productCid, orderCid, recordCid) <- submit processor do
+    exercise orderCid StartProcessingOrder with
+      recordId
+      recordTime = addRelTime before.lastUpdated (hours 1)
+  after <- submit processor do fetch productCid
+  record <- submit processor do fetch recordCid
+
+  assert ((after.handler == processor) && (before.handler == processor))
+  assert ((isNone after.requestObserver) && (isNone before.requestObserver))
+  assert (record.completionTime == after.lastUpdated)
+  assert (after.lastRecordType == PROCESSING_START)
+  assert (after.state == IN_PROCESS)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys ++ [recordKey])
+  assert ((recordKey `elem` after.recordKeys) && (recordKey `notElem` before.recordKeys))
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  return ()
+
+
+
+test_CompleteProcessingOrder = scenario do
+  producer <- getParty "producer"
+  processor <- getParty "processor"
+  (productCid, orderCid) <- createProductWithAnActiveProcessingOrder producer processor
+  before <- submit processor do fetch productCid
+  let label = "label:test_CompleteProcessingOrder"
+  let recordId = "recordId:test_CompleteProcessingOrder"
+  let recordKey = (processor, before.productId, recordId)
+  (productCid, recordCid) <- submit processor do
+    exercise orderCid CompleteProcessingOrder with
+      recordId
+      recordTime = addRelTime before.lastUpdated (hours 1)
+      recordOutputProduct = ProductInfo with
+        labels = [label]
+        typeId = "roasted_coffee"
+        amount = Amount with
+          quantity = 5.0
+          unit = "kg"
+  after <- submit producer do fetch productCid
+  record <- submit producer do fetch recordCid
+
+  assert ((after.handler == processor) && (before.handler == processor))
+  assert ((isNone after.requestObserver) && (isNone before.requestObserver))
+  assert (record.completionTime == after.lastUpdated)
+  assert (after.lastRecordType == PROCESSING_END)
+  assert (after.state == IDLE)
+  assert (after.version == before.version + 1)
+  assert (after.isProcessed && before.isProcessed == False)
+  assert (length after.productInfo.labels == 1)
+  assert ((label `elem` after.productInfo.labels) && (label `notElem` before.productInfo.labels))
+  assert (after.recordKeys == before.recordKeys ++ [recordKey])
+  assert ((recordKey `elem` after.recordKeys) && (recordKey `notElem` before.recordKeys))
+  assert (after.productInfo.amount.quantity == getQuantity record.details)
+
+  return ()
+  
+
+
+--------------------------------------------------------------------
+-- TRANSPORTATION REQUEST WORKFLOW
+
+test_MakeTransportationRequest = scenario do
+  producer <- getParty "producer"
+  transporter <- getParty "transporter"
+  productCid <- createProductWithAProductionRecord producer
+  before <- submit producer do fetch productCid
+  (productCid, requestCid, recordCids) <- makeTransportationRequest MakeRequestArgs with
+    owner = producer
+    productCid
+    otherParty = transporter
+  after <- submit producer do fetch productCid
+
+  assert (after.state == TRANSPORTATION_REQUESTED)
+  assert (fromSome (getTransportationRequestCid (fromSome after.orderCid)) == requestCid)
+  assert (fromSome after.requestObserver == transporter)
+  assert (isNone after.offerObserver)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  request <- submit transporter do fetch requestCid
+  processorFetch <- submit transporter do fetch productCid
+  records <- forA recordCids $ \recordCid -> submit transporter do fetch recordCid
+
+  return ()
+
+
+
+test_DeclineTransportationRequest = scenario do
+  producer <- getParty "producer"
+  transporter <- getParty "transporter"
+  (productCid, requestCid) <- createProductWithATransportationRequest producer transporter
+  before <- submit transporter do fetch productCid
+  (productCid, recordCids) <- submit transporter do
+    exercise requestCid DeclineTransportationRequest
+  after <- submit producer do fetch productCid
+
+  assert (before.owner == after.owner)
+  assert (after.handler == producer)
+  assert ((isNone after.requestObserver) && (isSome before.requestObserver))
+  assert (after.state == IDLE)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit producer do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.requestObserver)
+    assert (record.productCurrentHandler == producer)
+    return ()
+
+
+
+test_WithdrawTransportationRequest = scenario do
+  producer <- getParty "producer"
+  transporter <- getParty "transporter"
+  (productCid, requestCid) <- createProductWithATransportationRequest producer transporter
+  before <- submit transporter do fetch productCid
+  (productCid, recordCids) <- submit producer do
+    exercise requestCid WithdrawTransportationRequest
+  after <- submit producer do fetch productCid
+
+  assert (before.owner == after.owner)
+  assert (after.handler == producer)
+  assert ((isNone after.requestObserver) && (isSome before.requestObserver))
+  assert (after.state == IDLE)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit producer do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.requestObserver)
+    assert (record.productCurrentHandler == producer)
+    return ()
+
+
+
+test_AcceptTransportationRequest = scenario do
+  producer <- getParty "producer"
+  transporter <- getParty "transporter"
+  (productCid, requestCid) <- createProductWithATransportationRequest producer transporter
+  before <- submit transporter do fetch productCid
+  let recordId = "recordId:test_AcceptTransportationRequest"
+  let recordKey = (producer, before.productId, recordId)
+  (productCid, orderCid, recordCid, recordCids) <- submit transporter do
+    exercise requestCid AcceptTransportationRequest with
+      recordId = "recordId:test_AcceptTransportationRequest"
+      transportId = "processId:test_AcceptTransportationRequest"
+      recordTime = addRelTime before.lastUpdated (hours 1)
+  after <- submit transporter do fetch productCid
+  record <- submit transporter do fetch recordCid
+
+  assert ((after.handler == transporter) && (before.handler == producer))
+  assert ((isNone after.requestObserver) && (isSome before.requestObserver))
+  assert (record.completionTime == after.lastUpdated)
+  assert (after.lastRecordType == HANDOVER)
+  assert (after.state == TRANSPORTATION_ACCEPTED)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys ++ [recordKey])
+  assert ((recordKey `elem` after.recordKeys) && (recordKey `notElem` before.recordKeys))
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit transporter do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.requestObserver)
+    assert (record.productCurrentHandler == transporter)
+    return ()
+
+  return ()
+
+
+
+test_StartTransportationOrder = scenario do
+  producer <- getParty "producer"
+  transporter <- getParty "transporter"
+  (productCid, orderCid) <- createProductWithANewTransportationOrder producer transporter
+  before <- submit transporter do fetch productCid
+  let recordId = "recordId:test_AcceptTransportationRequest"
+  let recordKey = (transporter, before.productId, recordId)
+  (productCid, orderCid, recordCid) <- submit transporter do
+    exercise orderCid StartTransportationOrder with
+      recordId
+      recordTime = addRelTime before.lastUpdated (hours 1)
+  after <- submit transporter do fetch productCid
+  record <- submit transporter do fetch recordCid
+
+  assert ((after.handler == transporter) && (before.handler == transporter))
+  assert ((isNone after.requestObserver) && (isNone before.requestObserver))
+  assert (record.completionTime == after.lastUpdated)
+  assert (after.lastRecordType == TRANSPORTATION_START)
+  assert (after.state == IN_TRANSIT)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys ++ [recordKey])
+  assert ((recordKey `elem` after.recordKeys) && (recordKey `notElem` before.recordKeys))
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  return ()
+
+
+
+test_CompleteTransportationOrder = scenario do
+  producer <- getParty "producer"
+  transporter <- getParty "transporter"
+  (productCid, orderCid) <- createProductWithAnActiveTransportationOrder producer transporter
+  before <- submit transporter do fetch productCid
+  let recordId = "recordId:test_CompleteTransportationOrder"
+  let recordKey = (transporter, before.productId, recordId)
+  (productCid, recordCid) <- submit transporter do
+    exercise orderCid CompleteTransportationOrder with
+      recordId
+      recordTime = addRelTime before.lastUpdated (hours 1)
+  after <- submit producer do fetch productCid
+  record <- submit producer do fetch recordCid
+
+  assert ((after.handler == transporter) && (before.handler == transporter))
+  assert ((isNone after.requestObserver) && (isNone before.requestObserver))
+  assert (record.completionTime == after.lastUpdated)
+  assert (after.lastRecordType == TRANSPORTATION_END)
+  assert (after.state == IDLE)
+  assert (after.version == before.version + 1)
+  assert (after.productInfo.labels == before.productInfo.labels)
+  assert (after.productInfo.amount == before.productInfo.amount)
+  assert (after.recordKeys == before.recordKeys ++ [recordKey])
+  assert ((recordKey `elem` after.recordKeys) && (recordKey `notElem` before.recordKeys))
+
+  return ()
+
+
+
+--------------------------------------------------------------------
+-- HANDOVER REQUEST WORKFLOW
+
+test_MakeHandoverRequest = scenario do
+  producer <- getParty "producer"
+  newHandler <- getParty "newHandler"
+  productCid <- createProductWithAProductionRecord producer
+  before <- submit producer do fetch productCid
+  (productCid, requestCid, recordCids) <- makeHandoverRequest MakeRequestArgs with
+    owner = producer
+    productCid
+    otherParty = newHandler
+  after <- submit producer do fetch productCid
+
+  assert (after.state == HANDOVER_REQUESTED)
+  assert (fromSome (getHandoverRequestCid (fromSome after.orderCid)) == requestCid)
+  assert (fromSome after.requestObserver == newHandler)
+  assert (isNone after.offerObserver)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == before.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  processorFetch <- submit newHandler do fetch productCid
+  records <- forA recordCids $ \recordCid -> submit newHandler do fetch recordCid
+  request <- submit newHandler do fetch requestCid
+
+  assert (request.newHandler == newHandler)
+
+  return ()
+
+
+
+test_AcceptHandoverRequest = scenario do
+  producer <- getParty "producer"
+  newHandler <- getParty "newHandler"
+  (productCid, requestCid) <- createProductWithAHandoverRequest producer newHandler
+  before <- submit newHandler do fetch productCid
+  let recordId = "recordId:test_AcceptHandoverRequest"
+  let recordKey = (producer, before.productId, recordId)
+  (productCid, recordCid, recordCids) <- submit newHandler do
+    exercise requestCid AcceptHandoverRequest with
+      recordId
+      recordTime = addRelTime before.lastUpdated (hours 1)
+  after <- submit newHandler do fetch productCid
+  record <- submit newHandler do fetch recordCid
+
+  assert (before.owner == after.owner)
+  assert ((before.handler == producer) && (after.handler == newHandler))
+  assert ((isNone after.requestObserver) && (isSome before.requestObserver))
+  assert (after.lastRecordType == HANDOVER)
+  assert (after.lastUpdated == record.completionTime)
+  assert (after.state == IDLE)
+  assert (after.version == before.version + 1)
+  assert (after.recordKeys == (before.recordKeys ++ [recordKey]))
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit newHandler do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.requestObserver)
+    assert (record.productCurrentHandler == newHandler)
+    return ()
+
+  return ()
+
+
+
+test_DeclineHandoverRequest = scenario do
+  producer <- getParty "producer"
+  newHandler <- getParty "newHandler"
+  (productCid, requestCid) <- createProductWithAHandoverRequest producer newHandler
+  before <- submit newHandler do fetch productCid
+  (productCid, recordCids) <- submit newHandler do
+    exercise requestCid DeclineHandoverRequest
+  after <- submit producer do fetch productCid
+
+  assert (before.owner == after.owner)
+  assert (after.handler == producer)
+  assert ((isNone after.requestObserver) && (isSome before.requestObserver))
+  assert (after.state == IDLE)
+  assert (after.version == before.version + 1)
+  assert (before.recordKeys == after.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit producer do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.requestObserver)
+    assert (record.productCurrentHandler == producer)
+    return ()
+
+
+
+test_WithdrawHandoverRequest = scenario do
+  producer <- getParty "producer"
+  newHandler <- getParty "newHandler"
+  (productCid, requestCid) <- createProductWithAHandoverRequest producer newHandler
+  before <- submit newHandler do fetch productCid
+  (productCid, recordCids) <- submit producer do
+    exercise requestCid WithdrawHandoverRequest
+  after <- submit producer do fetch productCid
+
+  assert (before.owner == after.owner)
+  assert (after.handler == producer)
+  assert ((isNone after.requestObserver) && (isSome before.requestObserver))
+  assert (after.state == IDLE)
+  assert (after.version == before.version + 1)
+  assert (before.recordKeys == after.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit producer do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.requestObserver)
+    assert (record.productCurrentHandler == producer)
+    return ()
+
+
+
+--------------------------------------------------------------------
+-- SALE REQUEST WORKFLOW
+
+test_MakeSaleRequest = scenario do
+  producer <- getParty "producer"
+  buyer <- getParty "buyer"
+  productCid <- createProductWithAProductionRecord producer
+  before <- submit producer do fetch productCid
+  (productCid, requestCid, recordCids) <- makeSaleRequest MakeRequestArgs with
+    owner = producer
+    productCid
+    otherParty = buyer
+  after <- submit producer do fetch productCid
+
+  assert (after.state == SALE_REQUESTED)
+  assert (fromSome (getSaleRequestCid (fromSome after.orderCid)) == requestCid)
+  assert (fromSome after.offerObserver == buyer)
+  assert (isNone after.requestObserver)
+  assert (after.version == before.version + 1)
+  assert (before.recordKeys == after.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  return ()
+
+
+
+test_AcceptSaleRequest = scenario do
+  producer <- getParty "producer"
+  buyer <- getParty "buyer"
+  (productCid, requestCid) <- createProductWithASaleRequest producer buyer
+  before <- submit buyer do fetch productCid
+  let recordId = "recordId:test_AcceptSaleRequest"
+  let recordKey = (producer, before.productId, recordId)
+  (productCid, recordCid, recordCids) <- submit buyer do
+    exercise requestCid AcceptSaleRequest with
+      recordId
+      recordTime = addRelTime before.lastUpdated (hours 1)
+  after <- submit buyer do fetch productCid
+  record <- submit buyer do fetch recordCid
+
+  assert (before.handler == after.handler)
+  assert ((before.owner == producer) && (after.owner == buyer))
+  assert ((isNone after.offerObserver) && (isSome before.offerObserver))
+  assert (after.lastRecordType == SALE)
+  assert (after.lastUpdated == record.completionTime)
+  assert (after.state == IDLE)
+  assert (before.recordKeys ++ [recordKey] == after.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit buyer do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.offerObserver)
+    assert (record.productOwner == buyer)
+    return ()
+
+  return ()
+
+
+
+test_DeclineSaleRequest = scenario do
+  producer <- getParty "producer"
+  buyer <- getParty "buyer"
+  (productCid, requestCid) <- createProductWithASaleRequest producer buyer
+  before <- submit buyer do fetch productCid
+  (productCid, recordCids) <- submit buyer do
+    exercise requestCid DeclineSaleRequest
+  after <- submit producer do fetch productCid
+
+  assert (before.handler == after.handler)
+  assert (after.owner == producer)
+  assert ((isNone after.offerObserver) && (isSome before.offerObserver))
+  assert (after.state == IDLE)
+  assert (before.recordKeys == after.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit producer do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.offerObserver)
+    assert (record.productOwner == producer)
+    return ()
+
+
+
+test_WithdrawSaleRequest = scenario do
+  producer <- getParty "producer"
+  buyer <- getParty "buyer"
+  (productCid, requestCid) <- createProductWithASaleRequest producer buyer
+  before <- submit buyer do fetch productCid
+  (productCid, recordCids) <- submit producer do
+    exercise requestCid WithdrawSaleRequest
+  after <- submit producer do fetch productCid
+
+  assert (before.handler == after.handler)
+  assert (after.owner == producer)
+  assert ((isNone after.offerObserver) && (isSome before.offerObserver))
+  assert (after.state == IDLE)
+  assert (before.recordKeys == after.recordKeys)
+  assert (after.productInfo.amount == before.productInfo.amount)
+
+  records <- forA recordCids $ \recordCid -> submit producer do fetch recordCid
+  forA records $ \record -> do
+    assert (isNone record.offerObserver)
+    assert (record.productOwner == producer)
+    return ()
+
+
+test_MergeAndSplit = scenario do
+  producer <- getParty "producer"
+  (productCid) <- createProductWithAProductionRecord producer
+  before <- submit producer do fetch productCid
+  let productIdB = "test_MergeAndSplit:productIdB"
+  (productCid1, recordCid1, productCid2, recordCid2, recordCids) <- submit producer do
+    exercise productCid SplitProduct with
+      quantityA = before.productInfo.amount.quantity/2.0
+      quantityB = before.productInfo.amount.quantity/2.0
+      recordTime = addRelTime before.lastUpdated (hours 1)
+      recordId = "test_MergeAndSplit:split"
+      productIdB
+      descriptionA = "split 1"
+      descriptionB = "split 2"
+
+  afterSplit1 <- submit producer do fetch productCid1
+  afterSplit2 <- submit producer do fetch productCid2
+
+  let quant1 = afterSplit1.productInfo.amount.quantity
+  let quant2 = afterSplit2.productInfo.amount.quantity
+
+  assert (quant1 + quant2 == before.productInfo.amount.quantity)
+
+  (productCid1, recordCid) <- addProductionRecord AddProductionRecordArgs with
+    producer
+    productCid = productCid1
+    recordId = "test_MergeAndSplit:prod"
+    time = (addRelTime afterSplit1.lastUpdated (hours 1))
+    quantity = 2.5
+    label = "test_MergeAndSplit:extraprod"
+
+  afterAdd <- submit producer do fetch productCid1
+
+  (productCid, recordCid, recordCids) <- submit producer do
+    exercise productCid1 MergeProduct with
+      otherProductKey = (producer, productIdB)
+      recordTime = (addRelTime afterSplit1.lastUpdated (hours 2))
+      recordId = "test_MergeAndSplit:merge"
+      newDescription = "merged"
+
+  afterMerge <- submit producer do fetch productCid
+
+  assert (afterAdd.productInfo.amount.quantity + quant2 == afterMerge.productInfo.amount.quantity)
+
+  return ()
+    

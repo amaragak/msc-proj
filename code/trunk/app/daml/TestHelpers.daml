@@ -1,0 +1,282 @@
+module TestHelpers where
+
+import Types
+import Product
+import Record
+import DA.Time
+
+getQuantity: RecordDetails -> Decimal
+getQuantity record = case record of
+  ProductionRecordDetailsTag details -> details.product.amount.quantity
+  ProcessingEndRecordDetailsTag details -> details.outputProduct.amount.quantity
+  _ -> 0.0
+
+data CreateProductArgs = CreateProductArgs 
+  with
+    producer : Party
+    productId : Text
+    productType : Text
+
+createNewProduct: CreateProductArgs ->  Scenario (ProductCid)
+createNewProduct args = do
+  now <- getTime
+  productCid <- submit args.producer do
+    create Product with
+      state = IDLE
+      version = 1
+      lastUpdated = now
+      productId = args.productId
+      isProcessed = False
+      description = "Coffee for Starbucks"
+      owner = args.producer
+      handler = args.producer
+      productInfo = ProductInfo with
+        labels = []
+        typeId = args.productType
+        amount = Amount with
+          quantity = 0.0
+          unit = "kg"
+      recordKeys = []
+      lastRecordType = UNDEFINED
+      requestObserver = None
+      offerObserver = None
+      orderCid = None
+  product <- submit args.producer do fetch productCid
+  return (productCid)
+
+data AddProductionRecordArgs = AddProductionRecordArgs 
+  with
+    producer : Party
+    productCid : ProductCid
+    recordId : Text
+    time : Time
+    quantity : Decimal
+    label : Text
+
+addProductionRecord: AddProductionRecordArgs -> Scenario (ProductCid, RecordCid)
+addProductionRecord args = do
+  (productCid, recordCid) <- submit args.producer do
+    exercise args.productCid AddProductionRecordToProduct with
+      recordId = args.recordId
+      recordProducer = args.producer
+      recordTime = args.time
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordAmount = Amount with
+        quantity = args.quantity
+        unit = "kg"
+      recordPlotId = "plot1"
+      recordLabel = args.label
+  return (productCid, recordCid)
+
+data AddProcessingRecordArgs = AddProcessingRecordArgs 
+  with
+    processor : Party
+    productCid : ProductCid
+    recordId : Text
+    time : Time
+    quantity : Decimal
+    label : Text
+
+addProcessingRecord: AddProcessingRecordArgs -> Scenario (ProductCid, RecordCid, RecordCid)
+addProcessingRecord args = do
+  (productCid, startRecordCid, endRecordCid) <- submit args.processor do
+    exercise args.productCid AddProcessingRecordToProduct with
+      recordId = args.recordId
+      recordProcessor = args.processor
+      recordStartTime = args.time
+      recordEndTime = addRelTime args.time (hours 1)
+      recordLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordOutputAmount = Amount with
+        quantity = args.quantity
+        unit = ""
+      recordOutputType = "roasted_coffee_beans"
+      recordOutputLabel = args.label
+  return (productCid, startRecordCid, endRecordCid)
+
+data AddTransportationRecordArgs = AddTransportationRecordArgs 
+  with
+    transporter : Party
+    productCid : ProductCid
+    recordId : Text
+    time : Time
+
+addTransportationRecord: AddTransportationRecordArgs -> Scenario (ProductCid, RecordCid, RecordCid)
+addTransportationRecord args = do
+  (productCid, startRecordCid, endRecordCid) <- submit args.transporter do
+    exercise args.productCid AddTransportationRecordToProduct with
+      recordId = args.recordId
+      recordTransporter = args.transporter
+      recordStartTime = args.time
+      recordEndTime = addRelTime args.time (hours 1)
+      recordStartLocation = Location with
+        name = "Wigan"
+        country = "UK"
+      recordEndLocation = Location with
+        name = "Leicester"
+        country = "UK"
+  return (productCid, startRecordCid, endRecordCid)
+
+createProductWithAProductionRecord : Party -> Scenario (ProductCid)
+createProductWithAProductionRecord producer = do
+  now <- getTime
+  (productCid) <- createNewProduct CreateProductArgs with
+    producer 
+    productId = "productId:createProductWithAProductionRecord" 
+    productType = "coffee_beans"
+  product <- submit producer do fetch productCid
+  (productCid, recordCid) <- addProductionRecord AddProductionRecordArgs with 
+    producer 
+    productCid 
+    recordId = "recordId:createProductWithAProductionRecord" 
+    time = addRelTime product.lastUpdated (hours 1)
+    quantity = 5.0
+    label = "label:createProductWithAProductionRecord"
+  return (productCid)
+
+data MakeRequestArgs = MakeRequestArgs 
+  with
+    owner : Party
+    productCid : ProductCid
+    otherParty : Party 
+
+makeProcessingRequest : MakeRequestArgs -> Scenario (ProductCid, ProcessingRequestCid, [RecordCid])
+makeProcessingRequest args = do
+  (productCid, requestCid, recordCids) <- submit args.owner do
+    exercise args.productCid MakeProcessingRequest with
+      processor = args.otherParty
+      location = Location with
+        name = "Processing Factory"
+        country = "UK"
+      outputType = "roasted_coffee_beans"
+  return (productCid, requestCid, recordCids)
+
+createProductWithAProcessingRequest : Party -> Party -> Scenario (ProductCid, ProcessingRequestCid)
+createProductWithAProcessingRequest producer otherParty = do
+  productCid <- createProductWithAProductionRecord producer
+  (productCid, requestCid, recordCids) <- makeProcessingRequest MakeRequestArgs with
+    owner = producer
+    productCid
+    otherParty
+  return (productCid, requestCid)
+
+getProcessingRequestCid: OrderContractId -> Optional (ProcessingRequestCid)
+getProcessingRequestCid orderCid = case orderCid of
+  ProcessingRequestCidTag cid -> Some cid
+  _ -> None
+  
+createProductWithANewProcessingOrder : Party -> Party -> Scenario (ProductCid, NewProcessingOrderCid)
+createProductWithANewProcessingOrder producer otherParty = do
+  (productCid, requestCid) <- createProductWithAProcessingRequest producer otherParty
+  product <- submit producer do fetch productCid
+  (productCid, orderCid, recordCid, recordCids) <- submit otherParty do
+    exercise requestCid AcceptProcessingRequest with
+      recordId = "recordId:createProductWithANewProcessingOrder"
+      processId = "processId:createProductWithANewProcessingOrder"
+      recordTime = addRelTime product.lastUpdated (hours 1)
+  return (productCid, orderCid)
+
+createProductWithAnActiveProcessingOrder : Party -> Party -> Scenario (ProductCid, ActiveProcessingOrderCid)
+createProductWithAnActiveProcessingOrder producer otherParty = do
+  (productCid, requestCid) <- createProductWithANewProcessingOrder producer otherParty
+  product <- submit producer do fetch productCid
+  (productCid, orderCid, recordCid) <- submit otherParty do
+    exercise requestCid StartProcessingOrder with
+      recordId = "recordId:createProductWithAnActiveProcessingOrder"
+      recordTime = addRelTime product.lastUpdated (hours 1)
+  return (productCid, orderCid)
+
+makeTransportationRequest : MakeRequestArgs -> Scenario (ProductCid, TransportationRequestCid, [RecordCid])
+makeTransportationRequest args = do
+  (productCid, requestCid, recordCids) <- submit args.owner do
+    exercise args.productCid MakeTransportationRequest with
+      transporter = args.otherParty
+      startLocation = Location with
+        name = "Start"
+        country = "UK"
+      endLocation = Location with
+        name = "Start"
+        country = "UK"
+  return (productCid, requestCid, recordCids)
+
+createProductWithATransportationRequest : Party -> Party -> Scenario (ProductCid, TransportationRequestCid)
+createProductWithATransportationRequest producer otherParty = do
+  productCid <- createProductWithAProductionRecord producer
+  (productCid, requestCid, recordCids) <- makeTransportationRequest MakeRequestArgs with
+    owner = producer
+    productCid
+    otherParty
+  return (productCid, requestCid)
+
+getTransportationRequestCid: OrderContractId -> Optional (TransportationRequestCid)
+getTransportationRequestCid orderCid = case orderCid of
+  TransportationRequestCidTag cid -> Some cid
+  _ -> None
+
+createProductWithANewTransportationOrder : Party -> Party -> Scenario (ProductCid, NewTransportationOrderCid)
+createProductWithANewTransportationOrder producer otherParty = do
+  (productCid, requestCid) <- createProductWithATransportationRequest producer otherParty
+  product <- submit producer do fetch productCid
+  (productCid, orderCid, recordCid, recordCids) <- submit otherParty do
+    exercise requestCid AcceptTransportationRequest with
+      recordId = "recordId:createProductWithANewTransportationOrder"
+      transportId = "transportId:createProductWithANewTransportationOrder"
+      recordTime = addRelTime product.lastUpdated (hours 1)
+  return (productCid, orderCid)
+
+createProductWithAnActiveTransportationOrder : Party -> Party -> Scenario (ProductCid, ActiveTransportationOrderCid)
+createProductWithAnActiveTransportationOrder producer otherParty = do
+  (productCid, requestCid) <- createProductWithANewTransportationOrder producer otherParty
+  product <- submit producer do fetch productCid
+  (productCid, orderCid, recordCid) <- submit otherParty do
+    exercise requestCid StartTransportationOrder with
+      recordId = "recordId:createProductWithAnActiveTransportationOrder"
+      recordTime = addRelTime product.lastUpdated (hours 1)
+  return (productCid, orderCid)
+
+makeHandoverRequest : MakeRequestArgs -> Scenario (ProductCid, HandoverRequestCid, [RecordCid])
+makeHandoverRequest args = do
+  (productCid, requestCid, recordCids) <- submit args.owner do
+    exercise args.productCid MakeHandoverRequest with
+      newHandler = args.otherParty
+  return (productCid, requestCid, recordCids)
+
+createProductWithAHandoverRequest : Party -> Party -> Scenario (ProductCid, HandoverRequestCid)
+createProductWithAHandoverRequest producer otherParty = do
+  productCid <- createProductWithAProductionRecord producer
+  (productCid, requestCid, recordCids) <- makeHandoverRequest MakeRequestArgs with
+    owner = producer
+    productCid
+    otherParty
+  return (productCid, requestCid)
+
+getHandoverRequestCid: OrderContractId -> Optional (HandoverRequestCid)
+getHandoverRequestCid orderCid = case orderCid of
+  HandoverRequestCidTag cid -> Some cid
+  _ -> None
+
+makeSaleRequest : MakeRequestArgs -> Scenario (ProductCid, SaleRequestCid, [RecordCid])
+makeSaleRequest args = do
+  (productCid, requestCid, recordCids) <- submit args.owner do
+    exercise args.productCid MakeSaleRequest with
+      buyer = args.otherParty
+      price = 10.00
+      currency = "£"
+  return (productCid, requestCid, recordCids)
+
+createProductWithASaleRequest : Party -> Party -> Scenario (ProductCid, SaleRequestCid)
+createProductWithASaleRequest producer otherParty = do
+  productCid <- createProductWithAProductionRecord producer
+  (productCid, requestCid, recordCids) <- makeSaleRequest MakeRequestArgs with
+    owner = producer
+    productCid
+    otherParty
+  return (productCid, requestCid)
+
+getSaleRequestCid: OrderContractId -> Optional (SaleRequestCid)
+getSaleRequestCid orderCid = case orderCid of
+  SaleRequestCidTag cid -> Some cid
+  _ -> None

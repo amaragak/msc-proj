@@ -1,0 +1,209 @@
+daml 1.2
+
+module FarmingCoop_commented where
+
+import Types
+
+
+-- NB
+-- It is possible that not all of this stuff will ultimately be on the blockchain
+-- The file can be used as an example for how DAML works
+
+-- Model:
+-- This model assumes that
+--   the Farmer does not register himself on the platform, but is registered by the cooperative
+--   each farmer owns zero or more plots exclusively
+
+
+---------------------------------
+-- CONTRACT KEYS
+
+-- These are contract keys
+-- They are data types that are used to refer to specific
+-- contracts
+
+-- Key for FarmingCoop record
+-- A (Party, Text) tuple is used to uniquely identify the FarmingCoop contract
+--   Party is the coopParty 
+--   Text is the coop name
+type FarmingCoopKey = (Party, Text)
+
+-- Key for FarmingCoop record
+-- A (Party, PersonName) tuple is used to uniquely identify the Farmer contract
+--    Party is the coopParty
+--    PersonName is the name of the farmer
+type FarmerKey = (Party, PersonName)
+
+-- Key for Plot record
+-- A (Party, PersonName, Int) tuple is used to uniquely identify the Plot contract
+--    Party is the coopParty
+--    PersonName is the name of the farmer
+--    Int is the plot number
+type PlotKey = (Party, PersonName, Int)
+
+
+
+---------------------------------
+-- FARMING COOP
+
+-- Definition of a FarmingCoop record/contract
+template FarmingCoop
+  with -- Arguments for the creation of FarmingCoop
+    coopParty : Party -- The Party (similar to user hash address) is the cooperative
+    name : Text -- The name of the coop
+    farmers : [FarmerKey] -- A list of FarmerKey, each pointing to a Farmer record
+  where
+    signatory coopParty -- The signatory is the cooperative. They create the record.
+    key (coopParty, name) : FarmingCoopKey -- The specification for the key type
+    maintainer key._1 -- The maintainer of the contract is the coopParty
+    controller coopParty can -- The coopParty can execute the following 'choices' (actions)
+
+      -- AddFarmer
+      -- It will create a new FarmingCoop contract with the same information except with a new FarmerKey in the farmers list
+      -- It will create a new Farmer contract based on the provided arguments
+      -- This action will cause the FarmingCoop contract to be 'archived'
+      -- This means that the old FarmingCoop contract (the one without the new farmer) becomes unexecutable - you can no longer
+      --   execute choices on the old contract
+      AddFarmer : (ContractId FarmingCoop, ContractId Farmer)  -- The choice returns contract identifiers for the newly created contracts
+        with -- These are the arguments for the execution of AddFarmer choice
+          farmerName : PersonName
+          contactNumbers : [Text]
+          contactAddress : Text
+        do
+          let newFarmerKey = (coopParty, farmerName) -- Create a new FarmerKey for the new Farmer contract
+          assert (notElem newFarmerKey farmers) -- Check that the farmer is not already referenced
+
+          farmer <- create Farmer with -- Create a new Farmer contract
+            coopParty
+            farmerName
+            contactNumbers
+            contactAddress
+            plots = []
+
+          farmingCoop <- create this with -- Create a new FarmingCoop contract with all the same information
+            farmers = farmers ++ [newFarmerKey] -- ... except with the additional FarmerKey
+
+          return (farmingCoop, farmer);
+
+
+
+
+---------------------------------
+-- FARMER
+
+-- Definition of a Farmer record/contract
+template Farmer
+  with
+    coopParty : Party -- The reference to the cooperative that they belong to
+    farmerName : PersonName
+    contactNumbers : [Text]
+    contactAddress : Text
+    plots : [PlotKey] -- A list of PlotKey, each pointing to a Plot record
+  where
+    signatory coopParty -- The coop creates the record on behalf of the farmer
+    key (coopParty, farmerName) : FarmerKey
+    maintainer key._1
+    controller coopParty can -- The coop can execute the following choices (actions) on the contract
+      -- AddPlot
+      -- It will create a new Farmer contract with the same information except with a new PlotKey in the plots list
+      -- It will create a new Plot contract based on the provided arguments
+      -- This action will cause the Farmer contract to be 'archived'
+      -- This means that the old Farmer contract (the one without the new farmer) becomes unexecutable - you can no longer
+      --   execute choices on the old contract
+      AddPlot : (ContractId Farmer, ContractId Plot) -- See comments for AddFarmer (similar workflow)
+        with
+          plotNumber : Int
+          gpsLocation : Text
+        do
+          let newPlotKey = (coopParty, farmerName, plotNumber)
+          assert (notElem newPlotKey plots)
+
+          plot <- create Plot with
+            plotNumber
+            farmerName
+            coopParty
+            gpsLocation
+
+          farmer <- create this with
+            plots = plots ++ [newPlotKey]
+
+          return (farmer, plot);
+
+
+
+---------------------------------
+-- PLOT
+
+-- Definition of a Plot record/contract
+template Plot
+  with
+    plotNumber : Int
+    farmerName : PersonName
+    coopParty : Party
+    gpsLocation : Text
+  where
+    signatory coopParty -- Again, created by the coop on behalf of the farmer
+    key (coopParty, farmerName, plotNumber) : PlotKey
+    maintainer key._1
+    -- There are no 'choices' on this contract
+
+
+
+---------------------------------
+-- TEST
+
+-- DAML tests can be used to check that the correct permissions belong to each party
+-- For example, a test will fail if you try to execute a choice on a contract for which
+--   you are not a 'controller'
+
+-- Passes
+pass = scenario do
+  coopParty <- getParty "Coop" -- generate a party
+  farmingCoopCid <- submit coopParty do -- create a FarmingCoop contract, returns contract identifier
+    create FarmingCoop with
+      name = "Coop"
+      coopParty
+      farmers = []
+
+  (farmingCoopCid, farmerCid) <- submit coopParty do -- exercise the AddFarmer choice, return contract identifiers for new FarmingCoop and Farmer
+    exercise farmingCoopCid AddFarmer with
+      farmerName = PersonName with
+        firstname = "Alex"
+        lastname = "Maragakis"
+        title = "Mr"
+      contactNumbers = ["+44 7123456789"]
+      contactAddress = "67 Wigan"
+
+  (farmerCid, plotCid) <- submit coopParty do  -- exercise the AddPlot choice, return contract identifiers for new Farmer and Plot
+    exercise farmerCid AddPlot with
+      plotNumber = 1
+      gpsLocation = "1 0"
+
+  return farmingCoopCid;
+
+-- Fails
+--   This test fails because the coopParty2 party tried to execute a choice on a contract for which it was not the controller
+fail = scenario do
+  coopParty1 <- getParty "Coop1" -- generate a party
+  coopParty2 <- getParty "Coop2" -- generate a party
+  farmingCoopCid <- submit coopParty1 do -- create a FarmingCoop contract, returns contract identifier
+    create FarmingCoop with
+      name = "Coop"
+      coopParty = coopParty1
+      farmers = []
+
+  (farmingCoopCid, farmerCid) <- submit coopParty1 do -- exercise the AddFarmer choice, return contract identifiers for new FarmingCoop and Farmer
+    exercise farmingCoopCid AddFarmer with
+      farmerName = PersonName with
+        firstname = "Alex"
+        lastname = "Maragakis"
+        title = "Mr"
+      contactNumbers = ["+44 7123456789"]
+      contactAddress = "67 Wigan"
+
+  (farmerCid, plotCid) <- submit coopParty2 do  -- exercise the AddPlot choice, return contract identifiers for new Farmer and Plot
+    exercise farmerCid AddPlot with
+      plotNumber = 1
+      gpsLocation = "1 0"
+
+  return farmingCoopCid;

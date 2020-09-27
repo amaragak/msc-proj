@@ -1,0 +1,219 @@
+{- TODO
+  BeginTransportation should be consuming
+  When should handler be transferred?
+-}
+
+module Main where
+
+data Amount = Amount
+  with
+    quantity : Decimal
+    unit : Text
+  deriving (Eq, Show)
+
+template ProductionRecord
+  with
+    producer : Party
+    label : Text
+    productType : Text
+    amount : Amount
+    location : Text
+    time : Time
+  where
+    signatory producer
+
+-- need to link output/input labels
+template ProcessingRecord
+  with
+    processor : Party
+    process : Text
+    label : Text
+    productType : Text
+    amount : Amount
+    location : Text
+    time : Time
+  where
+    signatory processor
+
+template TransportationRecord
+  with
+    transporter : Party
+    label : Text
+    amount : Amount
+    fromLocation : Text
+    fromTime : Time
+    toLocation : Text
+    toTime : Time
+  where
+    signatory transporter
+
+template Product
+  with
+    owner : Party
+    handler : Party
+    label : Text
+    productType : Text
+    amount : Amount
+    productionRecordId : ContractId ProductionRecord
+    processingRecordIds : [ContractId ProcessingRecord]
+    transportationRecordIds : [ContractId TransportationRecord]
+  where
+    signatory owner
+    controller owner can
+      nonconsuming TransferOwnership : ContractId TransferOwnershipRequest
+        with 
+          newOwner : Party
+        do
+          create TransferOwnershipRequest with
+            product = this
+            newOwner
+            
+      nonconsuming HandoverForProcessing : ContractId ProcessingHandoverRequest
+        with
+          processor : Party
+          process : Text
+        do
+          create ProcessingHandoverRequest with
+            product = this
+            processor
+            process
+
+      nonconsuming HandoverForTransportation : ContractId TransportationHandoverRequest
+        with
+          transporter : Party
+          recipient : Party
+          fromLocation : Text
+          toLocation : Text
+        do
+          create TransportationHandoverRequest with
+            product = this
+            recipient
+            transporter
+            fromLocation
+            toLocation
+
+template TransportationHandoverRequest
+  with
+    product : Product
+    transporter : Party
+    recipient : Party
+    fromLocation : Text
+    toLocation : Text
+  where
+    signatory product.owner
+    controller transporter can
+      AcceptTransportationHandoverRequest : (ContractId TransportationOrder, ContractId Product)
+        do
+          now <- getTime
+          transportationOrder <- create TransportationOrder with
+            product
+            transporter
+            recipient
+            fromLocation
+            fromTime = now
+            toLocation
+
+          product <- create product with
+            handler = transporter
+
+          return (transportationOrder, product)
+
+template TransportationOrder
+  with 
+    product : Product
+    transporter : Party
+    recipient : Party
+    fromLocation : Text
+    fromTime : Time
+    toLocation : Text
+  where
+    signatory transporter
+    controller recipient can
+      SignUponTransportationCompletion : (ContractId TransportationRecord, ContractId Product)
+        with
+          newHandler : Party
+        do
+          now <- getTime
+          transportationRecord <- create TransportationRecord with
+            label = product.label
+            amount = product.amount
+            transporter
+            fromLocation
+            fromTime
+            toLocation
+            toTime = now
+
+          product <- create product with
+            handler = newHandler
+            -- ...
+
+          return (transportationRecord, product)
+
+template ProcessingHandoverRequest
+  with
+   -- maybe convert to product contractId and fetch later
+    product : Product
+    processor : Party
+    process : Text
+  where
+    signatory product.owner
+    controller processor can
+      AcceptProcessingHandoverRequest : (ContractId ProcessingOrder, ContractId Product)
+        do
+          processingOrder <- create ProcessingOrder with
+            product
+            processor
+            process
+
+          product <- create product with
+            handler = processor
+
+          return (processingOrder, product)
+          
+      --RejectProcessingRequest : ContractId Product
+
+template ProcessingOrder
+  with
+    product : Product
+    processor : Party
+    process : Text
+  where
+    signatory processor
+    controller processor can
+      CompleteOrder : (ContractId ProcessingRecord, ContractId Product)
+        with
+          label : Text
+          productType : Text
+          amount : Amount
+          location : Text
+        do
+          now <- getTime
+          processingRecord <- create ProcessingRecord with
+            time = now
+            processor
+            process
+            label
+            productType
+            amount
+            location
+
+          product <- create product -- with...
+
+          return (processingRecord, product)
+
+
+template TransferOwnershipRequest
+  with
+    product : Product
+    newOwner : Party
+  where 
+    signatory product.owner    
+    controller newOwner can
+      AcceptOwnership : ContractId Product
+        do
+          create product with
+            owner = newOwner
+        
+      RejectOwnership : ContractId Product
+        do 
+          create product

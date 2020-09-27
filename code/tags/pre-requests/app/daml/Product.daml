@@ -1,0 +1,209 @@
+module Product where
+
+import Record
+import Types
+
+type ProductKey = (Party, Text) -- (owner, productId)
+
+template Product
+  with
+    version : Int
+    productId : Text
+    isProcessed : Bool
+    description : Text
+    lastUpdated : Time
+    lastRecordType : RecordType
+    owner : Party
+    handler : Party
+    productLabels : [Text]
+    productType : Text
+    amount : Amount
+    recordKeys : [RecordKey]
+  where
+    signatory owner
+    key (owner, productId) : ProductKey
+    maintainer key._1
+
+    controller handler can
+      AddHandoverRecordToProduct : (ContractId Product, ContractId Record, [ContractId Record])
+        with
+          recordId : Text
+          recordTime : Time
+          recordOldHandler : Party
+          recordNewHandler : Party
+        do
+          assert (recordOldHandler == handler)
+          assert (recordTime > lastUpdated)
+
+          let recordKey = (recordOldHandler, recordId)
+
+          recordCid <- create Record with
+            recordType = HANDOVER
+            productId
+            recordId
+            completionTime = recordTime
+            actor = recordOldHandler
+            productOwner = owner
+            details = HandoverRecord HandoverRecordDetails with
+              newHandler = recordNewHandler
+              time = recordTime
+            productCurrentHandler = recordNewHandler
+
+          let newLastUpdated = if (null recordKeys) then recordTime else (max recordTime lastUpdated)
+
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = newLastUpdated
+            recordKeys = recordKeys ++ [recordKey]
+            lastRecordType = HANDOVER
+            handler = recordNewHandler
+
+          oldRecordCids <- forA recordKeys $ \k -> do
+            exerciseByKey @Record k ListNewHandlerOnRecord with newHandler = recordNewHandler
+
+          return (productCid, recordCid, oldRecordCids)
+
+      AddProductionRecordToProduct : (ContractId Product, ContractId Record)
+        with
+          recordId : Text
+          recordProducer : Party
+          recordTime : Time
+          recordLocation : Location
+          recordAmount : Amount
+          recordPlotId : Text
+          recordLabel : Text
+        do
+          assert (recordProducer == handler)
+          assert (not isProcessed)
+          assert (recordAmount.quantity >= 0.0)
+          assert (lastRecordType == UNDEFINED || lastRecordType == PRODUCTION)
+
+          let recordKey = (recordProducer, recordId)
+
+          recordCid <- create Record with
+            recordType = PRODUCTION
+            productId
+            recordId
+            completionTime = recordTime
+            actor = recordProducer
+            productOwner = owner
+            details = ProductionRecord ProductionRecordDetails with
+              product = ProductInfo with
+                typeId = productType
+                labels = [recordLabel]
+                amount = recordAmount
+              time = recordTime
+              location = recordLocation
+              plotId = recordPlotId
+            productCurrentHandler = handler
+
+          let newQuantity = amount.quantity + recordAmount.quantity
+          let newLastUpdated = if (null recordKeys) then recordTime else (max recordTime lastUpdated)
+          let newRecordKeys = recordKeys ++ [recordKey]
+
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = newLastUpdated
+            amount = Amount with
+              unit = amount.unit
+              quantity = newQuantity
+            productLabels = productLabels ++ [recordLabel]
+            recordKeys = recordKeys ++ [recordKey]
+            lastRecordType = PRODUCTION
+
+          return (productCid, recordCid)
+
+      AddProcessingRecordToProduct : (ContractId Product, ContractId Record)
+        with
+          recordId : Text
+          recordProcessor : Party
+          recordStartTime : Time
+          recordEndTime : Time
+          recordLocation : Location
+          recordOutputAmount : Amount
+          recordOutputType : Text
+          recordOutputLabel : Text
+        do
+          assert (recordProcessor == handler)
+          assert (recordEndTime > recordStartTime)
+          assert (recordStartTime > lastUpdated)
+          assert (amount.quantity > 0.0)
+          assert (recordOutputAmount.quantity > 0.0)
+          assert (recordOutputAmount.quantity <= amount.quantity)
+
+          let recordKey = (recordProcessor, recordId)
+
+          recordCid <- create Record with
+            recordType = PROCESSING
+            productId
+            recordId
+            completionTime = recordEndTime
+            actor = recordProcessor
+            productOwner = owner
+            details = ProcessingRecord ProcessingRecordDetails with
+              inputProduct = ProductInfo with
+                typeId = productType
+                labels = productLabels
+                amount
+              outputProduct = ProductInfo with
+                typeId = recordOutputType
+                labels = [recordOutputLabel]
+                amount = recordOutputAmount
+              startTime = recordStartTime
+              endTime = recordEndTime
+              location = recordLocation
+            productCurrentHandler = handler
+
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = recordEndTime
+            isProcessed = True
+            productLabels = [recordOutputLabel]
+            productType = recordOutputType
+            amount = recordOutputAmount
+            recordKeys = recordKeys ++ [recordKey]
+            lastRecordType = PROCESSING
+
+          return (productCid, recordCid)
+
+      AddTransportationRecordToProduct : (ContractId Product, ContractId Record)
+        with
+          recordId : Text
+          recordTransporter : Party
+          recordStartTime : Time
+          recordEndTime : Time
+          recordStartLocation : Location
+          recordEndLocation : Location
+        do
+          assert (recordTransporter == handler)
+          assert (recordEndTime > recordStartTime)
+          assert (recordStartTime > lastUpdated)
+          assert (amount.quantity > 0.0)
+
+          let recordKey = (recordTransporter, recordId)
+          
+          recordCid <- create Record with
+            recordType = TRANSPORTATION
+            productId
+            recordId
+            completionTime = recordEndTime
+            actor = recordTransporter
+            productOwner = owner
+            details = TransportationRecord TransportationRecordDetails with
+              product = ProductInfo with
+                typeId = productType
+                labels = productLabels
+                amount
+              startTime = recordStartTime
+              endTime = recordEndTime
+              startLocation = recordStartLocation
+              endLocation = recordEndLocation
+            productCurrentHandler = handler
+          
+          productCid <- create this with
+            version = version + 1
+            lastUpdated = recordEndTime
+            recordKeys = recordKeys ++ [recordKey]
+            lastRecordType = TRANSPORTATION
+
+          return (productCid, recordCid)

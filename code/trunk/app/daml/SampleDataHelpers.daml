@@ -1,0 +1,328 @@
+module SampleDataHelpers where
+
+import Product
+import Record
+import Types
+import Daml.Script
+import DA.Time
+
+init: Text -> Script(Text, Int)
+init productId = do return (productId, 1)
+
+inc: Int -> Script(Int)
+inc i = do return (i+1)
+
+get: Int -> Script(Int)
+get i = do return i
+
+getText: Text -> Script(Text)
+getText t = do return t
+
+getId : Text -> Text -> Int -> Text
+getId productId idType recordIndex = mconcat [productId, idType, show recordIndex]
+
+getRecordId : Text -> Int -> Text
+getRecordId productId recordIndex = getId productId ":record:" recordIndex
+
+getProcessId : Text -> Int -> Text
+getProcessId productId recordIndex = getId productId ":process:" recordIndex
+
+getTransportId : Text -> Int -> Text
+getTransportId productId recordIndex = getId productId ":transport:" recordIndex
+
+getLabel : Text -> Int -> Text
+getLabel productId recordIndex = getId productId ":label:" recordIndex
+
+fetchProduct: ProductCid -> Party ->  Script (ProductCid, Product)
+fetchProduct productCid owner = do submit owner do exerciseCmd productCid Fetch
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- CREATE NEW PRODUCT
+
+data CreateProductArgs = CreateProductArgs 
+  with
+    producer : Party
+    productId : Text
+    productType : Text
+    description : Text
+    now : Time
+
+createNewProduct: CreateProductArgs -> Script (ProductCid)
+createNewProduct args = do
+  productCid <- submit args.producer do
+    createCmd Product with
+      state = IDLE
+      version = 1
+      lastUpdated = args.now
+      productId = args.productId
+      isProcessed = False
+      description = args.description
+      owner = args.producer
+      handler = args.producer
+      productInfo = ProductInfo with
+        labels = []
+        typeId = args.productType
+        amount = Amount with
+          quantity = 0.0
+          unit = "kg"
+      recordKeys = []
+      lastRecordType = UNDEFINED
+      requestObserver = None
+      offerObserver = None
+      orderCid = None
+  return (productCid)
+
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- ADD PRODUCTION RECORD
+
+data AddProductionRecordArgs = AddProductionRecordArgs 
+  with
+    productCid : ProductCid
+    producer : Party
+    productId : Text
+    recordIndex : Int
+    location : Location
+    amount : Amount
+    plotId : Text
+    now : Time
+
+addProductionRecord: AddProductionRecordArgs -> Script (ProductCid, Int)
+addProductionRecord args = do
+  (productCid, recordCid) <- submit args.producer do
+    exerciseCmd args.productCid AddProductionRecordToProduct with
+      recordId = getRecordId args.productId args.recordIndex
+      recordPlotId = args.plotId
+      recordProducer = args.producer
+      recordTime = addRelTime args.now (hours args.recordIndex)
+      recordLabel = getLabel args.productId args.recordIndex
+      recordLocation = args.location
+      recordAmount = args.amount
+  return (productCid, args.recordIndex + 1)
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- PROCESS WITH REQUESTS
+
+data ProcessWithRequestArgs = ProcessWithRequestArgs
+  with
+    owner : Party
+    processor : Party
+    productId : Text
+    productCid : ProductCid
+    outputType : Text
+    outputUnit : Text
+    location : Location
+    recordIndex : Int
+    now : Time
+
+processWithRequests: ProcessWithRequestArgs -> Script (ProductCid, Int)
+processWithRequests args = do
+  recordIndex <- get args.recordIndex
+
+  (productCid, requestCid, oldRecordCids) <- submit args.owner do
+    exerciseCmd args.productCid MakeProcessingRequest with
+      processor = args.processor
+      outputType = args.outputType
+      location = args.location
+
+  (productCid, orderCid, recordCid, oldRecordCids) <- submit args.processor do
+    exerciseCmd requestCid AcceptProcessingRequest with
+      recordTime = addRelTime args.now (hours recordIndex)
+      recordId = getRecordId args.productId recordIndex
+      processId = getProcessId args.productId recordIndex
+
+  recordIndex <- inc recordIndex
+
+  (productCid, orderCid, recordCid) <- submit args.processor do
+    exerciseCmd orderCid StartProcessingOrder with
+      recordTime = addRelTime args.now (hours recordIndex)
+      recordId = getRecordId args.productId recordIndex
+
+  recordIndex <- inc recordIndex
+
+  (productCid, product) <- fetchProduct productCid args.owner
+
+  let inputQuantity = product.productInfo.amount.quantity
+  let outputQuantity = inputQuantity - (intToDecimal (round (0.1*inputQuantity)))
+
+  (productCid, recordCid) <- submit args.processor do
+    exerciseCmd orderCid CompleteProcessingOrder with
+      recordId = getRecordId args.productId recordIndex
+      recordTime = addRelTime args.now (hours recordIndex)
+      recordOutputProduct = ProductInfo with
+        typeId = args.outputType
+        labels = [getLabel args.productId recordIndex]
+        amount = Amount with
+          quantity = outputQuantity
+          unit = args.outputUnit
+
+  return (productCid, recordIndex + 1)
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- TRANSPORT WITH REQUESTS
+
+data TransportWithRequestArgs = TransportWithRequestArgs
+  with
+    owner : Party
+    transporter : Party
+    productId : Text
+    productCid : ProductCid
+    startLocation : Location
+    endLocation : Location
+    recordIndex : Int
+    now : Time
+
+transportWithRequests: TransportWithRequestArgs -> Script (ProductCid, Int)
+transportWithRequests args = do
+  recordIndex <- get args.recordIndex
+
+  (productCid, requestCid, oldRecordCids) <- submit args.owner do
+    exerciseCmd args.productCid MakeTransportationRequest with
+      transporter = args.transporter
+      startLocation = args.startLocation
+      endLocation = args.endLocation
+
+  (productCid, orderCid, recordCid, oldRecordCids) <- submit args.transporter do
+    exerciseCmd requestCid AcceptTransportationRequest with
+      recordTime = addRelTime args.now (hours recordIndex)
+      recordId = getRecordId args.productId recordIndex
+      transportId = getTransportId args.productId recordIndex
+
+  recordIndex <- inc recordIndex
+
+  (productCid, orderCid, recordCid) <- submit args.transporter do
+    exerciseCmd orderCid StartTransportationOrder with
+      recordTime = addRelTime args.now (hours recordIndex)
+      recordId = getRecordId args.productId recordIndex
+
+  recordIndex <- inc recordIndex
+
+  (productCid, product) <- fetchProduct productCid args.owner
+
+  let inputQuantity = product.productInfo.amount.quantity
+  let outputQuantity = inputQuantity - (intToDecimal (round (0.1*inputQuantity)))
+
+  (productCid, recordCid) <- submit args.transporter do
+    exerciseCmd orderCid CompleteTransportationOrder with
+      recordId = getRecordId args.productId recordIndex
+      recordTime = addRelTime args.now (hours recordIndex)
+
+  return (productCid, recordIndex + 1)
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- HANDOVER
+
+data HandoverArgs = HandoverArgs
+  with
+    oldHandler : Party
+    newHandler : Party
+    productId : Text
+    productCid : ProductCid
+    recordIndex : Int
+    now : Time
+
+handover: HandoverArgs -> Script (ProductCid, Int)
+handover args = do
+  (productCid, requestCid, oldRecordCids) <- submit args.oldHandler do
+    exerciseCmd args.productCid MakeHandoverRequest with
+      newHandler = args.newHandler
+  (productCid, recordCid, oldRecordCids) <- submit args.newHandler do
+    exerciseCmd requestCid AcceptHandoverRequest with
+      recordId = getRecordId args.productId args.recordIndex
+      recordTime = addRelTime args.now (hours args.recordIndex)
+  return (productCid, args.recordIndex + 1)
+
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- SALE
+
+data SaleArgs = SaleArgs
+  with
+    seller : Party
+    buyer : Party
+    productId : Text
+    productCid : ProductCid
+    price : Decimal
+    recordIndex : Int
+    now : Time
+
+sell: SaleArgs -> Script (ProductCid, Int)
+sell args = do
+  (productCid, requestCid, oldRecordCids) <- submit args.seller do
+    exerciseCmd args.productCid MakeSaleRequest with
+      buyer = args.buyer
+      price = args.price
+      currency = "£"
+  (productCid, recordCid, oldRecordCids) <- submit args.buyer do
+    exerciseCmd requestCid AcceptSaleRequest with
+      recordId = getRecordId args.productId args.recordIndex
+      recordTime = addRelTime args.now (hours args.recordIndex)
+  return (productCid, args.recordIndex + 1)
+
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- MERGE
+
+data MergeArgs = MergeArgs
+  with
+    owner : Party
+    productCidA : ProductCid
+    productCidB : ProductCid
+    recordIndex : Int
+    description : Text
+    now : Time
+
+merge: MergeArgs -> Script (ProductCid, Int)
+merge args = do
+  (productCidA, productA) <- fetchProduct args.productCidA args.owner
+  (productCidB, productB) <- fetchProduct args.productCidB args.owner
+  (productCid, mergeRecordCid, recordCids) <- submit args.owner do
+    exerciseCmd productCidA MergeProduct with
+      otherProductKey = (args.owner, productB.productId)
+      recordTime = addRelTime args.now (hours args.recordIndex)
+      recordId = getRecordId productA.productId args.recordIndex
+      newDescription = args.description
+  return (productCid, args.recordIndex + 1)
+
+
+
+---------------------------------------------------
+---------------------------------------------------
+-- SPLIT
+
+data SplitArgs = SplitArgs
+  with
+    owner : Party
+    productId : Text
+    productCid : ProductCid
+    recordIndex : Int
+    description : Text
+    now : Time
+
+split: SplitArgs -> Script (ProductCid, ProductCid, Int)
+split args = do
+  (productCid, product) <- fetchProduct args.productCid args.owner
+  (productCidA, splitRecordCidA, productCidB, splitRecordCidB, recordCids) <- submit args.owner do
+    exerciseCmd productCid SplitProduct with
+      quantityA = product.productInfo.amount.quantity/2.0
+      quantityB = product.productInfo.amount.quantity/2.0
+      recordTime = addRelTime args.now (hours args.recordIndex)
+      recordId = getRecordId args.productId args.recordIndex
+      productIdB = mconcat [args.productId, ":split"]
+      descriptionA = mconcat [args.description, " (1)"]
+      descriptionB = mconcat [args.description, " (2)"]
+  return (productCidA, productCidB, args.recordIndex + 1)

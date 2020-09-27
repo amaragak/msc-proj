@@ -1,0 +1,81 @@
+module Types where
+
+
+
+---------------------------------
+-- AMOUNT
+ 
+data Amount = Amount
+ with
+   quantity : Decimal
+   unit : Text
+ deriving (Eq, Show)
+ 
+
+---------------------------------
+-- PRODUCTINFO
+
+data ProductInfo_legacy = ProductInfo_legacy
+ with
+   typeId : Text
+   label : Text
+   amount: Amount
+ deriving (Eq, Show)
+
+
+---------------------------------
+-- PRODUCTINFO
+
+data ProductInfo = ProductInfo
+ with
+   typeId : Text
+   labels : [Text]
+   amount: Amount
+ deriving (Eq, Show)
+
+
+---------------------------------
+-- EVENT (legacy)
+
+data Event = Event
+  with
+    time : Time
+    location : Location
+ deriving (Eq, Show)
+
+
+
+ ---------------------------------
+-- FILE REFERENCE (legacy)
+
+data FileReference = FileReference
+  with
+    hash : Text
+    url : Text
+    name : Text
+ deriving (Eq, Show)
+
+
+
+---------------------------------
+-- LOCATION
+
+data Location = Location
+  with
+    name : Text
+    country : Text
+ deriving (Eq, Show)
+
+
+
+-----------------------------
+-- PERSONNAME
+
+data PersonName = PersonName
+  with
+    firstname : Text
+    lastname : Text
+    title : Text
+  deriving (Eq, Show)
+ 
+

@@ -1,0 +1,1 @@
+daml codegen js -o daml.js .daml/dist/app-0.1.0.dar
